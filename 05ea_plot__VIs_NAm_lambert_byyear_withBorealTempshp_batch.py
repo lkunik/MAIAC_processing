@@ -1,0 +1,628 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Author: Lewis Kunik - University of Utah
+# Contact: lewis.kunik@utah.edu
+#
+# Created on Tue Oct 24 2023
+#
+#
+
+#########################################
+# Import packages
+#########################################
+#%%
+# File system packages
+import os  # operating system library
+import sys
+import glob
+from pathlib import Path
+import copy
+
+# runtime packages
+import warnings
+# warnings.simplefilter(action='ignore', category=FutureWarning)
+# warnings.simplefilter(action='ignore', category=DeprecationWarning)
+import gc
+
+# numerical/data management packages
+import math
+import numpy as np
+import xarray as xr  # for multi dimensional data
+# import rioxarray as rxr
+import pandas as pd
+import xesmf as xe
+import struct
+from rasterio.enums import Resampling
+import dask as da
+
+# shapefile/geospatial packages
+
+# time and date packages
+import time
+from datetime import datetime as dt  # date time library
+from datetime import timedelta
+
+# plotting packages
+from matplotlib import pyplot as plt  # primary plotting module
+from shapely.geometry import mapping
+import matplotlib.colors as mcolors
+from matplotlib.ticker import FuncFormatter as FFmt  # need this for formatting plot ticks
+import cartopy.crs as ccrs  #
+from cartopy.io import img_tiles  # cartopy's implementation of webtiles
+import cartopy.io.shapereader as shpreader
+import cartopy.feature as cfeature
+import rasterio
+import geopandas as gpd
+
+#########################################
+# Define Global Filepaths
+#########################################
+#%%
+EPA_ecoregion_dir = '/uufs/chpc.utah.edu/common/home/lin-group23/ltk/EPA/ecoregions/'
+
+EPA_ecoregion_L1_file = os.path.join(EPA_ecoregion_dir, 'L1', 'NA_CEC_Eco_Level1_EPSG4326_regrid.shp')
+EPA_ecoregion_L2_file = os.path.join(EPA_ecoregion_dir, 'L2/NAm_shp_FOR_MAIAC_PROC', 'NA_CEC_Eco_Level2_withOther.shp')
+EPA_ecoregion_L3_file = os.path.join(EPA_ecoregion_dir, 'L3/NAm_shp_FOR_MAIAC_PROC', 'NAm_cec_eco_l3_v2.shp')
+EPA_ecoregion_temperate_file = os.path.join(EPA_ecoregion_dir, 'L3/NAm_cec_eco_l3_Temperate.shp')
+EPA_ecoregion_boreal_file = os.path.join(EPA_ecoregion_dir, 'L3/NAm_cec_eco_l3_Boreal_combined.shp')
+EPA_ecoregion_L3_file = os.path.join(EPA_ecoregion_dir, 'L3/NAm_shp_FOR_MAIAC_PROC', 'NAm_cec_eco_l3_v2.shp')
+
+
+#########################################
+# Define Global functions
+#########################################
+
+def td_min(td):
+    return td.seconds//60
+
+def td_sec(td):
+    return td.seconds%60
+
+
+
+####################################
+### Set up map parameters
+####################################
+
+
+ecoregions_l3_list = [
+'Thompson-Okanogan Plateau',
+# 'Central Basin and Range',
+'Colorado Plateaus',
+'Arizona/New Mexico Mountains',
+'Sierra Madre Occidental with Conifer, Oak, and Mixed Forests',
+'Interior Forested Lowlands and Uplands',
+'Interior Bottomlands',
+'Yukon Flats',
+'Ogilvie Mountains',
+'Mackenzie and Selwyn Mountains',
+'Peel River and Nahanni Plateaus',
+'Great Bear Plains',
+'Hay and Slave River Lowlands',
+'Kazan River and Selwyn Lake Uplands',
+'La Grande Hills and New Quebec Central Plateau',
+'Smallwood Uplands',
+'Ungava Bay Basin and George Plateau',
+'Coppermine River and Tazin Lake Uplands',
+'Hudson Bay and James Bay Lowlands',
+'Athabasca Plain and Churchill River Upland',
+'Lake Nipigon and Lac Seul Upland',
+'Central Laurentians and Mecatina Plateau',
+'Hayes River Upland and Big Trout Lake',
+'Abitibi Plains and Riviere Rupert Plateau',
+'Algonquin/Southern Laurentians',
+'Northern Appalachian and Atlantic Maritime Highlands',
+'Mid-Boreal Uplands and Peace-Wabaska Lowlands',
+'Clear Hills and Western Alberta Upland',
+'Mid-Boreal Lowland and Interlake Plain',
+'Interior Highlands and Klondike Plateau',
+'Copper Plateau',
+'Watson Highlands',
+'Yukon-Stikine Highlands/Boreal Mountains and Plateaus',
+'Skeena-Omineca-Central Canadian Rocky Mountains',
+'Middle Rockies',
+'Klamath Mountains',
+'Sierra Nevada',
+'Wasatch and Uinta Mountains',
+'Southern Rockies',
+'Idaho Batholith',
+'Chilcotin Ranges and Fraser Plateau',
+'Columbia Mountains/Northern Rockies',
+'Canadian Rockies',
+'North Cascades',
+'Blue Mountains',
+'Coastal Western Hemlock-Sitka Spruce Forests',
+'Pacific and Nass Ranges',
+'Coast Range',
+'Southeastern Plains',
+'South Central Plains',
+'Southern Coastal Plain',
+'Cascades',
+'Eastern Cascades Slopes and Foothills'
+]
+
+
+# Load the natural earth raster file
+NE_raster_file = "/uufs/chpc.utah.edu/common/home/lin-group19/ltk/pyutil/NaturalEarth/NE2_50M_SR_W/NE2_50M_SR_W.tif"
+NE_raster = rasterio.open(NE_raster_file)
+vector_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/pyutil/NaturalEarth'
+coastlines_file = os.path.join(vector_dir, 'ne_110m_coastline.shp')
+lakes_file = os.path.join(vector_dir, 'ne_110m_lakes.shp')
+rivers_file = os.path.join(vector_dir, 'ne_110m_rivers_lake_centerlines.shp')
+countries_file = os.path.join(vector_dir, 'ne_110m_admin_0_countries.shp')
+lambert_conformal_proj4 = '+proj=lcc +lon_0=-100 +lat_0=40 +lat_1=33 +lat_2=45 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs'
+
+lakes_gdf = gpd.read_file(lakes_file)
+# gdf.to_crs(lambert_conformal_proj4).plot(ax=ax, facecolor='#2b8dd6', edgecolor='#14629c', linewidth=1, alpha=0.7)
+
+
+# # use Google Satellite imagery as basemap
+# tiler = img_tiles.GoogleTiles(style='satellite')
+# crs = tiler.crs # set crs of map tiler
+# alpha = 0.5  # transparency 0-1
+# transform = ccrs.PlateCarree()  # transform specifies the crs that the data is in
+# plot_extent = [-128, -106, 39, 51]  # [minx, maxx, miny, maxy], bounds for western US
+
+### Load state boundaries
+fn = shpreader.natural_earth(
+   resolution='10m', category='cultural', 
+   name='admin_1_states_provinces',
+)
+
+reader = shpreader.Reader(fn)
+states = [x for x in reader.records() if x.attributes["admin"] == "United States of America"] # get all states in US
+states_geom = cfeature.ShapelyFeature([x.geometry for x in states], ccrs.PlateCarree())
+
+
+
+# Load Canadian provinces and Mexican states
+fn_can = shpreader.natural_earth(
+    resolution='10m', category='cultural', 
+    name='admin_1_states_provinces',
+)
+reader_can = shpreader.Reader(fn_can)
+canada = [x for x in reader_can.records() if x.attributes["admin"] == "Canada"]
+mexico = [x for x in reader_can.records() if x.attributes["admin"] == "Mexico"]
+
+canada_geom = cfeature.ShapelyFeature([x.geometry for x in canada], ccrs.PlateCarree())
+mexico_geom = cfeature.ShapelyFeature([x.geometry for x in mexico], ccrs.PlateCarree())
+
+tiler_zoom = 5  # define a zoom level of detail
+
+def get_tile_plot_extent(dat_xr_curv):
+    lat_min = float(dat_xr_curv['lat'].min())
+    lat_max = float(dat_xr_curv['lat'].max())
+    lon_min = float(dat_xr_curv['lon'].min())
+    lon_max = float(dat_xr_curv['lon'].max())
+    plot_extent =[lon_min, lon_max, lat_min, lat_max]
+
+    # special case if some lon values cross the 180 meridian, then lon_max will be 
+    # large because it extends into Russia (lon ~ +100 to +180)
+    if ((lon_min < -175) & (lon_max > 100)):
+        lon_neg = dat_xr_curv.lon.values.copy()
+        lon_neg[lon_neg > 0] = np.nan
+        plot_extent = [-179.99, np.nanmax(lon_neg), lat_min, lat_max]
+
+    return plot_extent
+
+
+
+# First, ensure coordinates are sorted and rounded to avoid floating point issues
+def prep_dataset(ds):
+    # Round coordinates to avoid floating point mismatches
+    ds = ds.assign_coords(
+        x=np.round(ds.x.values, 5),
+        y=np.round(ds.y.values, 5)
+    )
+    # Sort by coordinates
+    ds = ds.sortby(['x', 'y'])
+    return ds
+
+#########################################
+# Define Global Variables and constants
+#########################################
+
+refl_vars = ['Sur_refl1', 'Sur_refl2', 'Sur_refl4', 'Sur_refl6', 'Sur_refl7', 'Sur_refl11']
+
+#########################################
+# Begin main
+#########################################
+#%%
+# def main():
+
+# mark start time to keep track of elapsed
+start_total = time.time()
+
+MODIS_tiles = [	
+    'h07v06',  
+    'h08v04',
+    'h08v05',
+	'h08v06',
+	'h08v07', 
+    'h09v02', 
+	'h09v03',  
+    'h09v04',
+    'h09v05', 
+	'h09v06',
+	'h09v07', 
+	'h09v08',  
+	'h10v02', 
+	'h10v03',
+    'h10v04',
+	'h10v05',
+	'h10v06', 
+	'h10v07',
+	'h10v08', 
+	'h11v02', 
+	'h11v03', 
+	'h11v04', 
+	'h11v05', 
+    'h11v06', 
+    'h11v07',  
+	'h12v02',
+	'h12v03', 
+	'h12v04',
+    'h12v05',
+	'h13v02', 
+	'h13v03', 
+	'h13v04',
+	'h14v02',
+    'h14v03',
+    'h14v04',
+    "h12v01",
+    "h13v01",
+    "h14v01",
+    "h15v01",
+    "h15v02"
+    ]
+QC_option = 'CloudFree' # options are 'CloudAOD', 'Cloud', 'AOD', or 'None'
+avg_window = 'JJA'
+
+
+#/uufs/chpc.utah.edu/common/home/lin-group28/ltk/MODIS/MAIAC_MCD19A1/CV-MVC/01d_rect/std_anom/QCfilt_CloudFree
+dat_basedir = f'/uufs/chpc.utah.edu/common/home/lin-group28/ltk/MODIS/MAIAC_MCD19A1/CV-MVC/01d_rect/std_anom/QCfilt_{QC_option}/'
+tile_dirs = [os.path.join(dat_basedir, tile, 'annualized') for tile in MODIS_tiles]
+
+plot_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/PhD/for_defense/plots/MCD19_maps/IAV/FOR_GIF/'
+Path(plot_dir).mkdir(parents=True, exist_ok=True)
+
+plot_years = np.arange(2000, 2026)
+# DOY_composite_starts = np.arange(1, 366, 16)
+# composite_dates_2020 = [dt(2020, 1, 1) + timedelta(days=int(DOY) - 1) for DOY in DOY_composite_starts]
+
+
+ecoregions_L3_all_gdf = gpd.read_file(EPA_ecoregion_L3_file)
+ecoregions_temperate_gdf = gpd.read_file(EPA_ecoregion_temperate_file)
+ecoregions_boreal_gdf = gpd.read_file(EPA_ecoregion_boreal_file)
+
+temperate_plot_gdf = gpd.GeoDataFrame(columns=['geometry'], crs=ecoregions_L3_all_gdf.crs)
+boreal_plot_gdf = gpd.GeoDataFrame(columns=['geometry'], crs=ecoregions_L3_all_gdf.crs)
+for ecoregion in ecoregions_l3_list:
+        # Accumulate for dissolve
+        ecoregion_geom_gdf = ecoregions_L3_all_gdf[ecoregions_L3_all_gdf.NA_L3NAME == ecoregion]
+        temperate_extra = ['Pacific and Nass Ranges', 'Algonquin/Southern Laurentians', 'Central Laurentians and Mecatina Plateau']
+        if ecoregion in ecoregions_temperate_gdf.NA_L3NAME.values or ecoregion in temperate_extra:
+            temperate_plot_gdf = pd.concat([temperate_plot_gdf, ecoregion_geom_gdf[['geometry']]], ignore_index=True)
+        elif ecoregion in ecoregions_boreal_gdf.NA_L3NAME.values:
+            boreal_plot_gdf = pd.concat([boreal_plot_gdf, ecoregion_geom_gdf[['geometry']]], ignore_index=True)
+
+
+# composite_periods = np.arange(0,23)
+#%%
+
+start_time = time.time()
+overall_CCI_min = 1
+overall_CCI_max = -1
+overall_NDVI_min = 1
+overall_NDVI_max = -1
+
+
+for itile, tile_dir in enumerate(tile_dirs):
+    print(f'Plotting CCI for tile {MODIS_tiles[itile]}...')
+
+    # Sample file: MCD19A1.h12v01.061_01d_CV-MVC_QCfilt_CloudFree_hist_avg_12.nc
+    MCD19A1_file = os.path.join(tile_dir, f'MCD19A1.{MODIS_tiles[itile]}.061_01d_annual_{avg_window}_CV-MVC_stdAnom_QCfilt_{QC_option}.nc')
+
+    if not os.path.exists(MCD19A1_file):
+        print(f'File not found: {MCD19A1_file}. Skipping this tile.')
+        continue
+    dat_ds = xr.open_dataset(MCD19A1_file).drop_vars(['NDVI'])
+    dat_ds = dat_ds.assign(CCI=(dat_ds["Sur_refl11"] - dat_ds["Sur_refl1"])/
+            (dat_ds["Sur_refl11"] + dat_ds["Sur_refl1"]))
+
+    dat_ds_CCI_yyyy = dat_ds['CCI']
+
+    dat_ds = dat_ds.assign(NDVI=(dat_ds["Sur_refl2"] - dat_ds["Sur_refl1"])/
+            (dat_ds["Sur_refl2"] + dat_ds["Sur_refl1"]))
+
+    dat_ds_NDVI_yyyy = dat_ds['NDVI']
+
+    overall_CCI_min = float(np.nanmin([np.nanquantile(dat_ds_CCI_yyyy.values, 0.01), overall_CCI_min]))
+    overall_CCI_max = float(np.nanmax([np.nanquantile(dat_ds_CCI_yyyy.values, 0.99), overall_CCI_max]))
+    overall_NDVI_min = float(np.nanmin([np.nanquantile(dat_ds_NDVI_yyyy.values, 0.01), overall_NDVI_min]))
+    overall_NDVI_max = float(np.nanmax([np.nanquantile(dat_ds_NDVI_yyyy.values, 0.99), overall_NDVI_max]))
+
+    print(f'so far... min: {overall_CCI_min}, Overall CCI max: {overall_CCI_max}')
+    print(f'so far... NDVI min: {overall_NDVI_min}, Overall NDVI max: {overall_NDVI_max}')
+
+print(f'Overall CCI min: {overall_CCI_min}, Overall CCI max: {overall_CCI_max}')
+print(f'Overall NDVI min: {overall_NDVI_min}, Overall NDVI max: {overall_NDVI_max}')
+
+plot_CCI_min = min(overall_CCI_min, -overall_CCI_max)
+plot_CCI_max = max(overall_CCI_max, -overall_CCI_min)
+plot_NDVI_min = min(overall_NDVI_min, -overall_NDVI_max)
+plot_NDVI_max = max(overall_NDVI_max, -overall_NDVI_min)
+
+# Overall CCI min: -0.36836804804630674, Overall CCI max: 0.24613295211570638
+# Overall NDVI min: 0.018098107038908354, Overall NDVI max: 0.9149517721216466
+
+# overall_CCI_min = -0.36836804804630674
+# overall_CCI_max = 0.24613295211570638
+# overall_NDVI_min = 0.018098107038908354
+# overall_NDVI_max = 0.9149517721216466
+#%%
+
+def main():
+
+    zlab = 'MCD19 CCI'
+
+    plot_year = int(sys.argv[1]) # get the composite period to plot from the command line argument
+
+    # Set up Lambert figure
+    projection = ccrs.LambertConformal(central_longitude=-100, central_latitude=40)
+
+
+    start_period_time = time.time()
+    print(f'Plotting year {plot_year}...')
+
+    fig, ax = plt.subplots(figsize=(20, 20), subplot_kw={'projection': projection})
+
+    ax.stock_img()
+    ax.set_extent([-170, -50, 9, 72], crs=ccrs.PlateCarree())
+    # ax.add_feature(cfeature.LAND, facecolor='lightgray', alpha=0.7, zorder = 2)
+    ax.add_feature(cfeature.OCEAN, facecolor='black', alpha=0.55, zorder = 2)
+    ax.add_feature(cfeature.COASTLINE, edgecolor='black', zorder = 3)
+    lakes_lambert = lakes_gdf.to_crs(projection.proj4_init)
+    lakes_lambert.plot(ax=ax, facecolor='#73ADFF', edgecolor="#0b4a7a", linewidth=1, alpha=0.7)
+
+    for itile, tile_dir in enumerate(tile_dirs):
+        print(f'Plotting CCI for tile {MODIS_tiles[itile]}...')
+
+        # Sample file: MCD19A1.h12v04.061_01d_annual_JJA_CV-MVC_stdAnom_QCfilt_CloudFree.nc
+        MCD19A1_file = os.path.join(tile_dir, f'MCD19A1.{MODIS_tiles[itile]}.061_01d_annual_{avg_window}_CV-MVC_stdAnom_QCfilt_{QC_option}.nc')
+
+        if not os.path.exists(MCD19A1_file):
+            print(f'File not found: {MCD19A1_file}. Skipping this tile.')
+            continue
+        dat_ds = xr.open_dataset(MCD19A1_file)#.drop_vars(['NDVI'])
+        # dat_ds = dat_ds.assign(CCI=(dat_ds["Sur_refl11"] - dat_ds["Sur_refl1"])/
+        #         (dat_ds["Sur_refl11"] + dat_ds["Sur_refl1"]))
+
+        dat_ds_CCI_yyyy = dat_ds['CCI_std_anomaly'].sel(year=plot_year)
+
+        im = dat_ds_CCI_yyyy.plot(
+            ax=ax, x='x', y='y', transform=ccrs.PlateCarree(),
+            alpha=1, cmap='RdBu',
+            vmin=plot_CCI_min, vmax=plot_CCI_max,
+            add_colorbar=False
+        )
+
+        # Add a gray box behind the colorbar
+        cbar_box = plt.Rectangle(
+            (0.22, 0.28), 0.22, 0.12,  # [left, bottom], width, height (slightly larger than cbar_ax)
+            transform=fig.transFigure,
+            color='#e0e0e0', alpha=0.8, zorder=3, linewidth=0
+        )
+        fig.patches.append(cbar_box)
+
+        cbar_ax = fig.add_axes([0.23, 0.31, 0.2, 0.04])  # [left, bottom, width, height]
+        cbar = fig.colorbar(im, cax=cbar_ax, orientation='horizontal')
+        cbar_ax.set_zorder(4)  # Set zorder on the axes, not the colorbar
+        # Move colorbar label to the top, keep ticks at the bottom
+        cbar_ax.xaxis.set_label_position('top')
+        cbar_ax.xaxis.set_ticks_position('bottom')
+        cbar.set_label(f'{zlab} (JJA mean)\n{plot_year}', fontsize=23, labelpad=10)
+        cbar.ax.tick_params(labelsize=23)
+        # cbar.set_ticks([-0.3, 0.2])
+        
+
+    ax.add_geometries(temperate_plot_gdf.dissolve().geometry, crs=ccrs.PlateCarree(), facecolor='none', edgecolor='#ECAB0D', linewidth=1.5)
+    ax.add_geometries(boreal_plot_gdf.dissolve().geometry, crs=ccrs.PlateCarree(), facecolor='none', edgecolor='#258279', linewidth=1.5)
+
+
+    # ax.add_feature(states_geom, facecolor="none", edgecolor="#737373", linewidth=0.4) # add state boundaries to the map
+    # ax.add_feature(canada_geom, facecolor="none", edgecolor="#737373", linewidth=0.4) # add Canadian province boundaries to the map
+    # ax.add_feature(mexico_geom, facecolor="none", edgecolor="#737373", linewidth=0.4) # add Mexican state boundaries to the map
+    ax.set_title('')
+    outfile = os.path.join(plot_dir, f'MCD19A1_NorthAmerica_annual_{avg_window}_CCI_map_QCfilt_{QC_option}_{plot_year}_withBorealTempshp.png')
+    plt.savefig(outfile, dpi=100, bbox_inches='tight')
+    plt.close()
+
+    end_period_time = time.time()
+    elapsed_period = end_period_time - start_period_time
+    print(f'Year {plot_year} plotting took {elapsed_period:.2f} seconds ({td_min(timedelta(seconds=elapsed_period))} minutes and {td_sec(timedelta(seconds=elapsed_period))} seconds).')
+
+    print(f'CCI map complete. Now plotting NDVI...')
+
+    cci_end_time = time.time()
+    cci_elapsed = cci_end_time - start_time
+    print(f'CCI plotting took {cci_elapsed:.2f} seconds ({td_min(timedelta(seconds=cci_elapsed))} minutes and {td_sec(timedelta(seconds=cci_elapsed))} seconds).')
+
+
+    zlab = 'MCD19 NDVI'
+
+    # Set up Lambert figure
+    projection = ccrs.LambertConformal(central_longitude=-100, central_latitude=40)
+
+
+
+    start_period_time = time.time()
+    fig, ax = plt.subplots(figsize=(20, 20), subplot_kw={'projection': projection})
+
+    ax.stock_img()
+    ax.set_extent([-170, -50, 9, 72], crs=ccrs.PlateCarree())
+    # ax.add_feature(cfeature.LAND, facecolor='lightgray', alpha=0.7, zorder = 2)
+    ax.add_feature(cfeature.OCEAN, facecolor='black', alpha=0.55, zorder = 2)
+    ax.add_feature(cfeature.COASTLINE, edgecolor='black', zorder = 3)
+    lakes_lambert = lakes_gdf.to_crs(projection.proj4_init)
+    lakes_lambert.plot(ax=ax, facecolor='#73ADFF', edgecolor="#0b4a7a", linewidth=1, alpha=0.7)
+
+    for itile, tile_dir in enumerate(tile_dirs):
+        print(f'Plotting NDVI for tile {MODIS_tiles[itile]}...')
+        MCD19A1_file = os.path.join(tile_dir, f'MCD19A1.{MODIS_tiles[itile]}.061_01d_annual_{avg_window}_CV-MVC_stdAnom_QCfilt_{QC_option}.nc')
+
+        if not os.path.exists(MCD19A1_file):
+            print(f'File not found: {MCD19A1_file}. Skipping this tile.')
+            continue
+        dat_ds = xr.open_dataset(MCD19A1_file)#.drop_vars(['NDVI'])
+        # dat_ds = dat_ds.assign(NDVI=(dat_ds["Sur_refl2"] - dat_ds["Sur_refl1"])/
+        #         (dat_ds["Sur_refl2"] + dat_ds["Sur_refl1"]))
+
+        dat_ds_NDVI_yyyy = dat_ds['NDVI_std_anomaly'].sel(year=plot_year)
+
+        im = dat_ds_NDVI_yyyy.plot(
+            ax=ax, x='x', y='y', transform=ccrs.PlateCarree(),
+            alpha=1, cmap='RdBu',
+            vmin=plot_NDVI_min, vmax=plot_NDVI_max,
+            add_colorbar=False
+        )
+
+        # Add a gray box behind the colorbar
+        cbar_box = plt.Rectangle(
+            (0.22, 0.28), 0.22, 0.12,  # [left, bottom], width, height (slightly larger than cbar_ax)
+            transform=fig.transFigure,
+            color='#e0e0e0', alpha=0.8, zorder=3, linewidth=0
+        )
+        fig.patches.append(cbar_box)
+
+
+        cbar_ax = fig.add_axes([0.23, 0.31, 0.2, 0.04])  # [left, bottom, width, height]
+        cbar = fig.colorbar(im, cax=cbar_ax, orientation='horizontal')
+        cbar_ax.set_zorder(4)  # Set zorder on the axes, not the colorbar
+        # Move colorbar label to the top, keep ticks at the bottom
+        cbar_ax.xaxis.set_label_position('top')
+        cbar_ax.xaxis.set_ticks_position('bottom')
+        cbar.set_label(f'{zlab} (JJA mean)\n{plot_year}', fontsize=23, labelpad=10)
+        cbar.ax.tick_params(labelsize=23)
+        # cbar.set_ticks([0.1, 0.5, 0.9])
+
+
+    ax.add_geometries(temperate_plot_gdf.dissolve().geometry, crs=ccrs.PlateCarree(), facecolor='none', edgecolor='#ECAB0D', linewidth=1.5)
+    ax.add_geometries(boreal_plot_gdf.dissolve().geometry, crs=ccrs.PlateCarree(), facecolor='none', edgecolor='#258279', linewidth=1.5)
+
+
+    # ax.add_feature(states_geom, facecolor="none", edgecolor="#737373", linewidth=0.4) # add state boundaries to the map
+    # ax.add_feature(canada_geom, facecolor="none", edgecolor="#737373", linewidth=0.4) # add Canadian province boundaries to the map
+    # ax.add_feature(mexico_geom, facecolor="none", edgecolor="#737373", linewidth=0.4) # add Mexican state boundaries to the map
+
+    outfile = os.path.join(plot_dir, f'MCD19A1_NorthAmerica_annual_{avg_window}_NDVI_map_QCfilt_{QC_option}_{plot_year}_withBorealTempshp.png')
+    plt.savefig(outfile, dpi=100, bbox_inches='tight')
+    plt.close()
+
+    end_period_time = time.time()
+    elapsed_period = end_period_time - start_period_time
+    print(f'Year {plot_year} plotting took {elapsed_period:.2f} seconds ({td_min(timedelta(seconds=elapsed_period))} minutes and {td_sec(timedelta(seconds=elapsed_period))} seconds).')
+
+    print(f'NDVI map complete. Now plotting normalized difference...')
+
+    ndvi_end_time = time.time()
+    ndvi_elapsed = ndvi_end_time - start_time
+    print(f'NDVI plotting took {ndvi_elapsed:.2f} seconds ({td_min(timedelta(seconds=ndvi_elapsed))} minutes and {td_sec(timedelta(seconds=ndvi_elapsed))} seconds).')
+
+    # # #%%
+
+
+    # # overall_normdiff_min = 1
+    # # overall_normdiff_max = -1
+    # # print('Calculating normalized difference and getting min and max...')
+    # # for itile, tile_dir in enumerate(tile_dirs):
+    # #     MCD19A1_file = os.path.join(tile_dir, f'MCD19A1.{MODIS_tiles[itile]}.061_01d_annual_{avg_window}_CV-MVC_QCfilt_{QC_option}.nc')
+
+    # #     if not os.path.exists(MCD19A1_file):
+    # #         print(f'File not found: {MCD19A1_file}. Skipping this tile.')
+    # #         continue
+    # #     print(f'getting min and max from tile {MODIS_tiles[itile]}...')
+    # #     dat_ds = xr.open_dataset(MCD19A1_file).drop_vars(['NDVI'])
+    # #     dat_ds = dat_ds.assign(CCI=(dat_ds["Sur_refl11"] - dat_ds["Sur_refl1"])/
+    # #             (dat_ds["Sur_refl11"] + dat_ds["Sur_refl1"]))
+    # #     dat_ds = dat_ds.assign(NDVI=(dat_ds["Sur_refl2"] - dat_ds["Sur_refl1"])/
+    # #             (dat_ds["Sur_refl2"] + dat_ds["Sur_refl1"]))
+
+    # #     dat_ds_CCI_composite = dat_ds['CCI'].mean(dim='year', skipna=True)
+    # #     dat_ds_NDVI_composite = dat_ds['NDVI'].mean(dim='year', skipna=True)
+
+    # #     dat_ds_CCI_composite_scaled = (dat_ds_CCI_composite - overall_CCI_min) / (overall_CCI_max - overall_CCI_min)
+    # #     dat_ds_NDVI_composite_scaled = (dat_ds_NDVI_composite - overall_NDVI_min) / (overall_NDVI_max - overall_NDVI_min)
+    # #     dat_ds_norm_diff = dat_ds_CCI_composite_scaled - dat_ds_NDVI_composite_scaled
+
+    # #     overall_normdiff_min = min(overall_normdiff_min, np.nanquantile(dat_ds_norm_diff.values, 0.01))
+    # #     overall_normdiff_max = max(overall_normdiff_max, np.nanquantile(dat_ds_norm_diff.values, 0.99))
+
+
+    # # plot_normdiff_min = -max(abs(overall_normdiff_min), abs(overall_normdiff_max)) # -1 #
+    # # plot_normdiff_max = max(abs(overall_normdiff_min), abs(overall_normdiff_max)) # 1 #
+
+    # # zlab = 'CCI-NDVI norm'
+
+    # # # Set up Lambert figure
+    # # projection = ccrs.LambertConformal(central_longitude=-100, central_latitude=40)
+    # # fig, ax = plt.subplots(figsize=(20, 20), subplot_kw={'projection': projection})
+
+    # # # ax.set_extent(plot_extent, crs=ccrs.PlateCarree())  # PlateCarree is default lat/lon 
+    # # ax.set_extent([-170, -50, 9, 72], crs=ccrs.PlateCarree())
+    # # ax.add_feature(cfeature.LAND, facecolor='lightgray', alpha=0.7)
+    # # ax.add_feature(cfeature.OCEAN, facecolor='black', alpha=0.9)
+    # # ax.add_feature(cfeature.COASTLINE, edgecolor='black')
+    # # lakes_gdf.plot(ax=ax, facecolor='#2b8dd6', edgecolor='#14629c', linewidth=1, alpha=0.7)
+
+    # # for itile, tile_dir in enumerate(tile_dirs):
+    # #     print(f'Plotting normalized difference for tile {MODIS_tiles[itile]}...')
+    # #     MCD19A1_file = os.path.join(tile_dir, f'MCD19A1.{MODIS_tiles[itile]}.061_01d_annual_{avg_window}_CV-MVC_QCfilt_{QC_option}.nc')
+
+    # #     if not os.path.exists(MCD19A1_file):
+    # #         print(f'File not found: {MCD19A1_file}. Skipping this tile.')
+    # #         continue
+    # #     dat_ds = xr.open_dataset(MCD19A1_file).drop_vars(['NDVI'])
+    # #     dat_ds = dat_ds.assign(CCI=(dat_ds["Sur_refl11"] - dat_ds["Sur_refl1"])/
+    # #             (dat_ds["Sur_refl11"] + dat_ds["Sur_refl1"]))
+    # #     dat_ds = dat_ds.assign(NDVI=(dat_ds["Sur_refl2"] - dat_ds["Sur_refl1"])/
+    # #             (dat_ds["Sur_refl2"] + dat_ds["Sur_refl1"]))
+
+    # #     dat_ds_CCI_composite = dat_ds['CCI'].mean(dim='year', skipna=True)
+    # #     dat_ds_NDVI_composite = dat_ds['NDVI'].mean(dim='year', skipna=True)
+
+    # #     dat_ds_CCI_composite_scaled = (dat_ds_CCI_composite - overall_CCI_min) / (overall_CCI_max - overall_CCI_min)
+    # #     dat_ds_NDVI_composite_scaled = (dat_ds_NDVI_composite - overall_NDVI_min) / (overall_NDVI_max - overall_NDVI_min)
+    # #     dat_ds_norm_diff = dat_ds_CCI_composite_scaled - dat_ds_NDVI_composite_scaled
+
+    # #     # if itile < (len(tile_dirs)-1):
+    # #     dat_ds_norm_diff.plot(ax=ax, x='x', y='y', transform=ccrs.PlateCarree(), 
+    # #                     alpha=1, cmap='PRGn',
+    # #                     vmin=plot_normdiff_min, vmax=plot_normdiff_max,
+    # #                     add_colorbar=False)
+    # #     # else:
+    # #     #     dat_ds_norm_diff.plot(ax=ax, x='x', y='y', transform=ccrs.PlateCarree(), 
+    # #     #                 alpha=1, cmap='PRGn',
+    # #     #                 vmin=plot_normdiff_min, vmax=plot_normdiff_max,
+    # #     #                 cbar_kwargs={'orientation': 'vertical',
+    # #     #                                     'pad': 0.05,
+    # #     #                                     'label': zlab,
+    # #     #                                     'shrink': 0.6})
+
+    # # ax.add_feature(states_geom, facecolor="none", edgecolor="#737373", linewidth=0.4) # add state boundaries to the map
+    # # ax.add_feature(canada_geom, facecolor="none", edgecolor="#737373", linewidth=0.4) # add Canadian province boundaries to the map
+    # # ax.add_feature(mexico_geom, facecolor="none", edgecolor="#737373", linewidth=0.4) # add Mexican state boundaries to the map
+
+    # # outfile = os.path.join(plot_dir, f'MCD19A1_NorthAmerica_annual_{avg_window}_CCI-NDVInorm_map_QCfilt_{QC_option}_lambert.png')
+    # # plt.savefig(outfile, dpi=150, bbox_inches='tight')
+    # # plt.close()
+
+    # # print(f'CCI-NDVI normalized difference map complete.')
+
+
+
+
+    # # %%
+if __name__ == "__main__":
+    main()

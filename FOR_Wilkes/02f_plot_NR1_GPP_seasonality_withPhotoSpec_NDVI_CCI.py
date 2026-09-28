@@ -1,0 +1,1 @@
+/uufs/chpc.utah.edu/common/home/lin-group19/ltk/PhD/for_defense/code/02f_plot_NR1_GPP_seasonality_withPhotoSpec_NDVI_CCI.py

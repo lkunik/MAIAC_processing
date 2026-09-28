@@ -1,0 +1,19 @@
+# ignored directories
+log/
+old/
+
+# macOS metadata
+.DS_Store
+._*
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# large data/output formats
+*.nc
+*.tif
+*.tiff
+*.hdf
+*.h5
