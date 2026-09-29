@@ -204,7 +204,7 @@ plot_period = 12 # 16-day period to plot
 #%%
 # def main():
 #     try:
-MODIS_tile = 'h10v03' # sys.argv[1] #
+MODIS_tile = 'h11v03' # sys.argv[1] #
 composite_year = 2012 #int(sys.argv[2]) # command line argument
 composite_period = 14 #int(sys.argv[3]) # command line argument
 QC_option = 'CloudFree_LowAOD_ClearAdj' #sys.argv[4] # command line argument - options are 'CloudFree', 'CloudAOD', 'Cloud', 'AOD', or 'None'

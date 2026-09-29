@@ -231,7 +231,7 @@ plot_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/plots/maps
 # CHANGED: color limits computed from the data (0 to the largest per-tile 99th percentile), same idea as the
 # commented-out min/max block in the CCI map script. Once printed, these can be hard-coded and this block commented out.
 overall_min = 0
-overall_max = 0.5200669169425964
+overall_max = 0 #0.5200669169425964
 
 if overall_max == 0 and overall_min == 0:
     for itile, tile_dir in enumerate(tile_dirs):
@@ -251,7 +251,7 @@ else:
 #%%
 
 zlab = plot_var
-cmap_name = 'inferno_r'#'magma_r' # CHANGED: color scheme
+cmap_name = 'YlOrRd'#'magma_r' # CHANGED: color scheme
 # Set up Lambert figure
 projection = ccrs.LambertConformal(central_longitude=-100, central_latitude=40)
 fig, ax = plt.subplots(figsize=(30, 30), subplot_kw={'projection': projection})
