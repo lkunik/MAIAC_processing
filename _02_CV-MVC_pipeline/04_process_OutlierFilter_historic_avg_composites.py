@@ -329,6 +329,7 @@ def main():
                     dat_ds = dat_ds.drop_vars(['VZA_rank'])
                 if 'QA_flag' in dat_ds:
                     dat_ds = dat_ds.drop_vars(['QA_flag'])  # categorical flag, not meaningful to average
+                dat_ds = dat_ds.drop_vars(['orbit_time_utc', 'orbit_local_solar_time'], errors='ignore')  # optional per-pixel orbit time diagnostic from step 01, not meaningful to average
                 dat_ds = dat_ds.assign(NDVI=(dat_ds['Sur_refl2'] - dat_ds['Sur_refl1']) / (dat_ds['Sur_refl2'] + dat_ds['Sur_refl1']))
                 dat_ds = dat_ds.assign(CCI=(dat_ds['Sur_refl11'] - dat_ds['Sur_refl1']) / (dat_ds['Sur_refl11'] + dat_ds['Sur_refl1']))
                 dat_xrs.append(dat_ds)

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --requeue # on guest nodes, opt to requeue any job that is booted out by a higher priority job 
-#SBATCH --time=12:00:00 # walltime, abbreviated by -t
+#SBATCH --time=10:00:00 # walltime, abbreviated by -t
 #SBATCH --nodes=1      # number of cluster nodes, abbreviated by -N
 #SBATCH --ntasks=1     # number of tasks to run
 #SBATCH --cpus-per-task=8 # number of CPUs to use per task, abbreviated by -c

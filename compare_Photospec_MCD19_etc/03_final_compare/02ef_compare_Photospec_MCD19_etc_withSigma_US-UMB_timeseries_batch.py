@@ -87,6 +87,14 @@ Photospec_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/data/
 Photospec_2018_file = os.path.join(Photospec_dir, 'PhotoSpecM1_2018_v20260903.nc')
 Photospec_2019_file = os.path.join(Photospec_dir, 'PhotoSpecM1_2019_v20260903.nc')
 
+# MCD19 mean overpass time at US-UMB is 12:21 local mean solar time (LMST) = 13:00 EST (PhotoSpec clock).
+# PhotoSpec data are 90-min averages (Hour_of_Day = interval start); HOD index 8 (12:00-13:30 EST)
+# is the period that best matches overpass +/- 1 hr
+Photospec_HOD_idx = 8
+Photospec_HOD_start = pd.Timedelta(hours=12)
+overpass_window = ('12:00', '13:30')
+overpass_window_times = tuple(pd.Timestamp(t).time() for t in overpass_window)
+
 MOD13_dir = os.path.join(dat_pt_basedir, 'MOD13')
 MOD13_file = os.path.join(MOD13_dir, f'MOD13_pt_{site_name}.nc')
 MCD43_dir = os.path.join(dat_pt_basedir, 'MCD43')
@@ -261,21 +269,21 @@ def main():
 
 
     # Format Photospec data into a single DataFrame with datetime index (like other PS datasets)
-    Photospec_df_2018 = Photospec_xr_2018.sel(HOD=9).to_dataframe().reset_index()
+    Photospec_df_2018 = Photospec_xr_2018.sel(HOD=Photospec_HOD_idx).to_dataframe().reset_index()
 
     Photospec_df_2018['Time'] = (
         pd.Timestamp('2018-01-01')
         + pd.to_timedelta(Photospec_df_2018['DOY'].astype(int), unit='D')
-        + pd.Timedelta(hours=13, minutes=30)
+        + Photospec_HOD_start
     )
 
 
-    Photospec_df_2019 = Photospec_xr_2019.sel(HOD=9).to_dataframe().reset_index()
+    Photospec_df_2019 = Photospec_xr_2019.sel(HOD=Photospec_HOD_idx).to_dataframe().reset_index()
 
     Photospec_df_2019['Time'] = (
         pd.Timestamp('2019-01-01')
         + pd.to_timedelta(Photospec_df_2019['DOY'].astype(int), unit='D')
-        + pd.Timedelta(hours=13, minutes=30)
+        + Photospec_HOD_start
     )
 
     Photospec_df = pd.concat([Photospec_df_2018, Photospec_df_2019], ignore_index=True)
@@ -300,8 +308,8 @@ def main():
     GCOM_times = np.array([np.datetime64(t) for t in GCOM_pt['time'].values])
     MOD09_times = np.array([np.datetime64(t) for t in MOD09_pt['time'].values])
 
-    # Filter Photospec_df for times between 13:00 and 14:00
-    mask = (Photospec_times.dt.hour >= 13) & (Photospec_times.dt.hour < 14)
+    # Filter Photospec_df for MCD19 overpass time +/- 1 hr (see overpass_window)
+    mask = Photospec_times.dt.time.between(*overpass_window_times, inclusive='left')
     Photospec_df_filtered = Photospec_df[mask].reset_index(drop=True)
     Photospec_times_filtered = Photospec_times[mask].reset_index(drop=True)
 
@@ -348,9 +356,9 @@ def main():
     mcd19_ndvi_lo = mcd19_ndvi - mcd19_ndvi_sig
     mcd19_ndvi_hi = mcd19_ndvi + mcd19_ndvi_sig
 
+    # y-limits from the overall range of tower and MCD19 data +/- 10% (sigma shading may extend beyond)
     ndvi_arrays = [
-        mcd19_ndvi_lo,
-        mcd19_ndvi_hi,
+        mcd19_ndvi,
         Photospec_df_filtered['NDVI'].values
     ]
     mcd19_ndvi_min = np.nanmin(np.concatenate(ndvi_arrays))
@@ -375,7 +383,7 @@ def main():
     ax.plot(MCD19_QC_times, mcd19_ndvi, color=MCD19_QC_color, marker='o', markersize=8, linewidth=3.5,
             alpha=1, markeredgecolor='black', markeredgewidth=0.5, zorder=3)
 
-    ax.set_ylim(mcd19_ndvi_min - (mcd19_ndvi_range*0.15), mcd19_ndvi_max + (mcd19_ndvi_range*0.05))
+    ax.set_ylim(mcd19_ndvi_min - (mcd19_ndvi_range*0.10), mcd19_ndvi_max + (mcd19_ndvi_range*0.10))
     ax.yaxis.set_major_formatter(FFmt(lambda y, _: f'{y:.1f}'))
     # ax.yaxis.set_major_locator(MultipleLocator(0.3))
 
@@ -400,9 +408,9 @@ def main():
     mcd19_cci_lo = mcd19_cci - mcd19_cci_sig
     mcd19_cci_hi = mcd19_cci + mcd19_cci_sig
 
+    # y-limits from the overall range of tower and MCD19 data +/- 10% (sigma shading may extend beyond)
     cci_arrays = [
-        mcd19_cci_lo,
-        mcd19_cci_hi,
+        mcd19_cci,
         Photospec_df_filtered['CCI'].values
     ]
     mcd19_cci_min = np.nanmin(np.concatenate(cci_arrays))
@@ -424,7 +432,7 @@ def main():
     ax.plot(MCD19_QC_times, mcd19_cci, color=MCD19_QC_color, marker='o', markersize=8, linewidth=3.5,
             alpha=1, markeredgecolor='black', markeredgewidth=0.5, zorder=3)
 
-    ax.set_ylim(mcd19_cci_min - (mcd19_cci_range*0.05), mcd19_cci_max + (mcd19_cci_range*0.05))
+    ax.set_ylim(mcd19_cci_min - (mcd19_cci_range*0.10), mcd19_cci_max + (mcd19_cci_range*0.10))
     ax.yaxis.set_major_formatter(FFmt(lambda y, _: f'{y:.1f}'))
     # ax.yaxis.set_major_locator(MultipleLocator(0.1))
     ax.set_xlim(Photospec_times_filtered.min() - pd.Timedelta(days=10), Photospec_times_filtered.max() + pd.Timedelta(days=10))

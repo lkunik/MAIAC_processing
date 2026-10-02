@@ -4,8 +4,8 @@
 # Author: Lewis Kunik - University of Utah
 # Contact: lewis.kunik@utah.edu
 #
-# Supplement: tower (PhotoSpec) and MCD19 vs. each comparison
-# satellite product individually at US-NR1. One panel per product and index:
+# Supplement: tower (FloX) and MCD19 vs. each comparison
+# satellite product individually at US-Ne3. One panel per product and index:
 #   NDVI: MOD09, GCOM-C, MOD13, MCD43
 #   CCI:  MOD09, GCOM-C
 # Comparison products are drawn as lines. Input files, tower overpass-window
@@ -28,16 +28,17 @@ from matplotlib.ticker import FuncFormatter as FFmt
 # Site settings
 #########################################
 
-site_name = 'US-NR1'
-plot_title = 'US-NR1'
-panel_letters = ('g', 'h')          # (NDVI, CCI) for MOD09/GCOM-C; (MOD13, MCD43) for the NDVI-only products
+site_name = 'US-Ne3'
+plot_title = 'US-Ne3'
+panel_letters = ('i', 'j')          # (NDVI, CCI) for MOD09/GCOM-C; (MOD13, MCD43) for the NDVI-only products
 figsize = (7, 3)
 month_ticks = [1, 4, 7, 10]
-NDVI_MIN = 0.6                 # PhotoSpec NDVI floor (None = no filter)
 
 winter_periods = [
     # Ground snow cover periods
-    (pd.Timestamp('2017-09-25'), pd.Timestamp('2018-05-30'))
+    (pd.Timestamp('2017-12-24'), pd.Timestamp('2018-02-25')),
+    (pd.Timestamp('2018-11-09'), pd.Timestamp('2019-03-15')),
+    (pd.Timestamp('2019-12-15'), pd.Timestamp('2020-02-08')),
 ]
 
 #########################################
@@ -55,13 +56,14 @@ product_files = {
     for prod in ['MOD09', 'GCOM', 'MOD13', 'MCD43']
 }
 
-Photospec_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/data/PhotoSpec'
-Photospec_file = os.path.join(Photospec_dir, f'PhotoSpec_{site_name}.csv')
+FloX_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/data/FloX/US-Ne3/'
+FloX_2018_file = os.path.join(FloX_dir, 'DFlox_SIF_VIs_2018.csv')
+FloX_2019_file = os.path.join(FloX_dir, 'DFlox_SIF_VIs_2019.csv')
 
-# MCD19 mean overpass time at US-NR1 is 12:24 local mean solar time (LMST) = 12:26 MST (PhotoSpec clock).
-# Select PhotoSpec times within +/- 1 hr of overpass, rounded to the nearest half hour: [start, end)
-# (US-NR1 PhotoSpec data are hourly, so this selects the 12:00 and 13:00 values)
-overpass_window = ('11:30', '13:30')
+# MCD19 mean overpass time at US-Ne3 is 12:04 local mean solar time (LMST). FloX DateTime is UTC, so
+# convert to LMST (UTC + lon/15) before selecting FloX times within +/- 1 hr of overpass
+FloX_utc_to_LMST = pd.Timedelta(hours=-96.4397 / 15)
+overpass_window = ('11:04', '13:04')
 overpass_window_times = tuple(pd.Timestamp(t).time() for t in overpass_window)
 
 plot_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/plots/CVMVC_QC_regression_stats/final/supplement/'
@@ -96,22 +98,46 @@ panels = [
 # Functions
 #########################################
 
+def remove_running_window_outliers(df, window='14D', value_columns=('CCI', 'NDVI')):
+    """Remove rows containing values outside running 1st/99th percentiles."""
+    df = df.sort_values('DateTime').copy()
+    indexed = df.set_index('DateTime')
+    keep = pd.Series(True, index=indexed.index)
+    for column in value_columns:
+        if column not in indexed:
+            continue
+        values = indexed[column]
+        lower = values.rolling(window, center=True, min_periods=2).quantile(0.01)
+        upper = values.rolling(window, center=True, min_periods=2).quantile(0.99)
+        keep &= values.isna() | ((values >= lower) & (values <= upper))
+    return indexed.loc[keep.to_numpy()].reset_index()
+
+
+def load_flox_year(path, year, doy_offset=0):
+    df = pd.read_csv(path)
+    if doy_offset:
+        df['DoY'] = df['DoY'] - doy_offset
+    df = df[df['DoY'].between(1, 366)]
+    df['DateTime'] = pd.to_datetime(df['DateTime'])
+    df = df[df['DateTime'].between(f'{year}-01-01', f'{year}-12-31')]
+    df = df[(df['DateTime'] + FloX_utc_to_LMST).dt.time.between(*overpass_window_times)]
+    df = df[df['NDVI'].between(0, 1)]
+    return remove_running_window_outliers(df)
+
+
 def load_reference():
     """
     Return (window times, filtered times, filtered daily DataFrame) of the tower record.
-    Window times set the MCD19 time window; filtered = overpass-window daily means.
+    FloX obs are restricted to the overpass window, then averaged to daily means.
     """
-    df = pd.read_csv(Photospec_file)
-    if NDVI_MIN is not None:
-        df = df[df['NDVI'] >= NDVI_MIN].reset_index(drop=True)
-    times = pd.to_datetime(df['Time'], format='%m/%d/%y %H:%M')
-
-    # Filter for MCD19 overpass time +/- 1 hr (see overpass_window)
-    mask = times.dt.time.between(*overpass_window_times, inclusive='left')
-    # Average the overpass-window PhotoSpec obs to daily means (~4 obs/day; 2 for hourly US-NR1)
-    df_filtered = df[mask].assign(Time=times[mask].dt.normalize())
-    df_filtered = df_filtered.groupby('Time', as_index=False).mean(numeric_only=True)
-    return times, df_filtered['Time'], df_filtered
+    df = pd.concat([
+        load_flox_year(FloX_2018_file, 2018),
+        load_flox_year(FloX_2019_file, 2019, doy_offset=365),
+    ], ignore_index=True)
+    df['Time'] = pd.to_datetime(df['DateTime']).dt.normalize()
+    df = df.groupby('Time', as_index=False).mean(numeric_only=True)
+    times = pd.to_datetime(df['Time'])
+    return times, times, df
 
 
 def to_datetimeindex(times):

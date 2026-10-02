@@ -5,7 +5,7 @@ BASEDIR="/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI"
 
 
 COMPOSITES=$(seq 0 22)
-# COMPOSITES=$(seq 15 22)
+# COMPOSITES=$(seq 3 3)
 
 MODIS_TILES=(
 # "h07v06" 
@@ -13,32 +13,32 @@ MODIS_TILES=(
 # "h08v04"
 # "h08v05"
 # "h08v06"
-"h08v07"
+# "h08v07"
 # "h09v02"
 # "h09v03" 
 # "h09v04" # US-NR1
 # "h09v05" # ecoregions related to US-NR1
-"h09v06"
-"h09v07"
-"h09v08" 
+# "h09v06"
+# "h09v07"
+# "h09v08" 
 # "h10v02"
 # "h10v03"
-# "h10v04" # ecoregions related to US-NR1
+# "h10v04" # US-Ne3
 # "h10v05"
-# "h10v06" # OSBS
-"h10v07"
-"h10v08"
+"h10v06" # OSBS
+# "h10v07"
+# "h10v08"
 # "h11v02" # DEJU
 # "h11v03" # Ca-Obs
 # "h11v04"
 # "h11v05"
 # "h11v06"
-"h11v07"
+# "h11v07"
 # "h11v08"
 # "h12v01"
 # "h12v02"
 # "h12v03"
-# "h12v04"
+# "h12v04" # US-UMB
 # "h12v05"
 # "h13v01"
 # "h13v02"
@@ -58,6 +58,10 @@ QC_FLAG="CloudFree_LowAOD_ClearAdj"
 
 VZA_MIN=0
 VZA_MAX=90
+
+# Diagnostic: save per-pixel orbit UTC time + local solar time in the composites (step 01) for PhotoSpec comparisons.
+# 1 = on, 0 = off. Only turn on for the tiles you need; existing composites without it get reprocessed.
+SAVE_ORBIT_TIME=1
 
 
 # Compare AOD and adjacency masks:
@@ -93,7 +97,7 @@ for MODIS_TILE in "${MODIS_TILES[@]}"; do
         --output="${LOGDIR}/out-%x-%j-%N.out" \
         --error="${LOGDIR}/err-%x-%j-%N.err" \
         --job-name="CV-MVC_${MODIS_TILE}_t${COMPOSITE_2D}_${QC_FLAG}" \
-        --export=LOGDIR=${LOGDIR},MODIS_TILE=${MODIS_TILE},COMPOSITE=${COMPOSITE},QC_FLAG=${QC_FLAG},VZA_MIN=${VZA_MIN},VZA_MAX=${VZA_MAX} \
+        --export=LOGDIR=${LOGDIR},MODIS_TILE=${MODIS_TILE},COMPOSITE=${COMPOSITE},QC_FLAG=${QC_FLAG},VZA_MIN=${VZA_MIN},VZA_MAX=${VZA_MAX},SAVE_ORBIT_TIME=${SAVE_ORBIT_TIME} \
         ${BASEDIR}/code/_02_CV-MVC_pipeline/00~CV-MVC_pipeline.sbatch)
 
         njobs=$((njobs+1))

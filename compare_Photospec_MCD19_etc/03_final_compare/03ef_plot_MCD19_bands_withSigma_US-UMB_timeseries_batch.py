@@ -55,6 +55,14 @@ Photospec_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/data/
 Photospec_2018_file = os.path.join(Photospec_dir, 'PhotoSpecM1_2018_v20260903.nc')
 Photospec_2019_file = os.path.join(Photospec_dir, 'PhotoSpecM1_2019_v20260903.nc')
 
+# MCD19 mean overpass time at US-UMB is 12:21 local mean solar time (LMST) = 13:00 EST (PhotoSpec clock).
+# PhotoSpec data are 90-min averages (Hour_of_Day = interval start); HOD index 8 (12:00-13:30 EST)
+# is the period that best matches overpass +/- 1 hr
+Photospec_HOD_idx = 8
+Photospec_HOD_start = pd.Timedelta(hours=12)
+overpass_window = ('12:00', '13:30')
+overpass_window_times = tuple(pd.Timestamp(t).time() for t in overpass_window)
+
 plot_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/plots/CVMVC_QC_regression_stats/final/'
 panel_dir = os.path.join(plot_dir, 'panels')
 os.makedirs(panel_dir, exist_ok=True)
@@ -75,21 +83,21 @@ REFL_SCALE = 1.0
 #########################################
 
 def load_reference_times():
-    """Return (all times, 13-14h times) of the ground-based record."""
+    """Return (all times, overpass-window times) of the ground-based record."""
     dfs = []
     for year, f in [(2018, Photospec_2018_file), (2019, Photospec_2019_file)]:
-        df = xr.open_dataset(f).sel(HOD=9).to_dataframe().reset_index()
+        df = xr.open_dataset(f).sel(HOD=Photospec_HOD_idx).to_dataframe().reset_index()
         df['Time'] = (
             pd.Timestamp(f'{year}-01-01')
             + pd.to_timedelta(df['DOY'].astype(int), unit='D')
-            + pd.Timedelta(hours=13, minutes=30)
+            + Photospec_HOD_start
         )
         dfs.append(df)
     df = pd.concat(dfs, ignore_index=True)
     if NDVI_MIN is not None:
         df = df[df['NDVI'] >= NDVI_MIN].reset_index(drop=True)
     times = pd.to_datetime(df['Time'])
-    mask = (times.dt.hour >= 13) & (times.dt.hour < 14)
+    mask = times.dt.time.between(*overpass_window_times, inclusive='left')
     return times, times[mask].reset_index(drop=True)
 
 

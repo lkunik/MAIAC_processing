@@ -302,6 +302,19 @@ def main():
         # mark start time to keep track of elapsed
         start_total = time.time()
 
+        # Optional diagnostic: save the UTC time and local solar time of the orbit selected for each composite pixel
+        # (for point-level PhotoSpec comparisons). Off by default; turn on with the '--save-orbit-time' flag
+        # anywhere on the command line (set by SAVE_ORBIT_TIME=1 in 00-CV_MVC_pipeline_submit.sh)
+        flag_args = [arg for arg in sys.argv[1:] if arg.startswith('--')]
+        pos_args = [sys.argv[0]] + [arg for arg in sys.argv[1:] if not arg.startswith('--')]
+        save_orbit_time = '--save-orbit-time' in flag_args
+        unknown_flags = [arg for arg in flag_args if arg != '--save-orbit-time']
+        if len(unknown_flags) > 0:
+            raise ValueError(f"Unknown flag(s): {unknown_flags}")
+        sys.argv = pos_args # positional arguments are parsed below as before
+        if save_orbit_time:
+            print('Orbit time diagnostic ON: saving orbit_time_utc and orbit_local_solar_time for each composite pixel')
+
         MODIS_tile = sys.argv[1] #'h10v04'
         composite_year = int(sys.argv[2]) # command line argument
         composite_period = int(sys.argv[3]) # command line argument
@@ -358,8 +371,19 @@ def main():
 
 
         if os.path.exists(outfile):
-            print(f'Output file {os.path.basename(outfile)} already exists, skipping processing for {composite_year}-{str(composite_period).zfill(2)}')
-            sys.exit(0)
+            # if the orbit time diagnostic is requested but the existing file was made without it, reprocess (overwrite) it
+            outfile_has_orbit_time = False
+            if save_orbit_time:
+                try:
+                    with xr.open_dataset(outfile) as existing_ds:
+                        outfile_has_orbit_time = 'orbit_time_utc' in existing_ds.data_vars
+                except OSError:
+                    outfile_has_orbit_time = False
+            if save_orbit_time and not outfile_has_orbit_time:
+                print(f'Output file {os.path.basename(outfile)} exists but has no orbit time variables, reprocessing for {composite_year}-{str(composite_period).zfill(2)}')
+            else:
+                print(f'Output file {os.path.basename(outfile)} already exists, skipping processing for {composite_year}-{str(composite_period).zfill(2)}')
+                sys.exit(0)
 
 
         iYYMM = [ i for i in range(len(MCD19A1_filedates)) if ((MCD19A1_filedates[i].year == composite_year) &
@@ -674,6 +698,13 @@ def main():
         # Get number of valid observations per x, y pixel
         dat_full_ds = dat_full_ds.assign(valid_obs_count=dat_full_ds.NDVI.notnull().sum(dim='time'))
 
+        if save_orbit_time:
+            # keep the UTC orbit timestamps (parsed from the global attrs), and carry each obs's index into them as a 1D
+            # data variable so it follows the pixel-wise NDVI/VZA selection below.
+            # (the 'time' coordinate itself does not survive the .where() swap in step 3, so it can't be used for this)
+            orbit_times_utc = dat_full_ds['time'].values
+            dat_full_ds = dat_full_ds.assign(orbit_idx = xr.DataArray(np.arange(len(orbit_times_utc), dtype='float32'), dims='time'))
+
         ### Step 1: pixel-wise sort by NDVI
         # define the array from which we want to sort NDVI values
         arr_sort_NDVI = -dat_full_ds.NDVI # NOTE THE NEGATIVE!!! makes it a descending sort
@@ -707,6 +738,27 @@ def main():
 
         del nan_inds_NDVI, dat_full_ds_top2NDVI_lowestVZA, dat_full_ds_top2NDVI_highestVZA
         gc.collect() # manual garbage collection
+
+        if save_orbit_time:
+            # map each pixel's selected orbit index back to its UTC timestamp
+            # argsort still assigns an index to pixels with no valid obs, so mask those to NaT
+            orbit_valid = composite_ds['NDVI'].notnull() & composite_ds['orbit_idx'].notnull()
+            orbit_idx = composite_ds['orbit_idx'].where(orbit_valid).fillna(0).astype('int64').values
+            orbit_time_utc = np.where(orbit_valid.values, orbit_times_utc[orbit_idx], np.datetime64('NaT'))
+
+            # local (mean) solar time in decimal hours = UTC time of day + lon/15
+            utc_hour = (orbit_time_utc - orbit_time_utc.astype('datetime64[D]')) / np.timedelta64(1, 'h') # NaN where NaT
+            local_solar_time = ((utc_hour + composite_ds['lon'].values / 15) % 24).astype('float32')
+
+            composite_ds = composite_ds.drop_vars('orbit_idx')
+            composite_ds = composite_ds.assign(orbit_time_utc = xr.DataArray(orbit_time_utc, dims=composite_ds['NDVI'].dims,
+                                                                             attrs={'long_name': 'UTC time of the orbit selected for this pixel by CV-MVC',
+                                                                                    'comment': 'from Orbit_time_stamp_GLOSDS global attribute of the MCD19A1 file (granule start time, so within ~5 min of the actual overpass)'}))
+            composite_ds = composite_ds.assign(orbit_local_solar_time = xr.DataArray(local_solar_time, dims=composite_ds['NDVI'].dims,
+                                                                                     attrs={'long_name': 'local mean solar time of the orbit selected for this pixel by CV-MVC, in decimal hours (0-24)',
+                                                                                            'comment': 'orbit_time_utc time of day + lon/15; convert orbit_time_utc for local standard/daylight time. '
+                                                                                                       '(no units attribute on purpose: a time unit like "hours" makes xarray decode this as a timedelta)'}))
+            del orbit_valid, orbit_idx, orbit_time_utc, utc_hour, local_solar_time
 
 
         # clean up the dataset for saving

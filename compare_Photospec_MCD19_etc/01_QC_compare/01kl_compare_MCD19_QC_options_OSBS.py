@@ -105,6 +105,11 @@ dat_pt_basedir_QC4 = os.path.join(dat_pt_basedir, f'CV-MVC/pre-fill/QCfilt_{QC4_
 Photospec_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/data/PhotoSpec'
 Photospec_file = os.path.join(Photospec_dir, f'PhotoSpec_{site_name}.csv')
 
+# MCD19 mean overpass time at OSBS is 11:50 local mean solar time (LMST) = 12:18 EST (PhotoSpec clock).
+# Select PhotoSpec times within +/- 1 hr of overpass, rounded to the nearest half hour: [start, end)
+overpass_window = ('11:30', '13:30')
+overpass_window_times = tuple(pd.Timestamp(t).time() for t in overpass_window)
+
 out_stats_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/output/CVMVC_QC_regression_stats/'
 os.makedirs(out_stats_dir, exist_ok=True)
 
@@ -268,10 +273,12 @@ def main():
     MCD19_QC4_times = np.array([np.datetime64(t) for t in MCD19_QC4_pt['time'].values])
 
 
-    # Filter Photospec_df for times between 13:00 and 14:00
-    mask = (Photospec_times.dt.hour >= 13) & (Photospec_times.dt.hour < 14)
-    Photospec_df_filtered = Photospec_df[mask].reset_index(drop=True)
-    Photospec_times_filtered = Photospec_times[mask].reset_index(drop=True)
+    # Filter Photospec_df for MCD19 overpass time +/- 1 hr (see overpass_window)
+    mask = Photospec_times.dt.time.between(*overpass_window_times, inclusive='left')
+    # Average the overpass-window PhotoSpec obs to daily means (~4 obs/day; 2 for hourly US-NR1)
+    Photospec_df_filtered = Photospec_df[mask].assign(Time=Photospec_times[mask].dt.normalize())
+    Photospec_df_filtered = Photospec_df_filtered.groupby('Time', as_index=False).mean(numeric_only=True)
+    Photospec_times_filtered = Photospec_df_filtered['Time']
 
     # Set x-axis to month abbreviations at the start of each month
     months = np.arange(1, 13)
@@ -439,6 +446,49 @@ def main():
             Photospec_df_filtered['NDVI'].values
         ),
         index=MCD19_QC1_pt.time.values
+    )
+
+
+    # Interpolate Photospec values to MCD19 times, but do not bridge long gaps
+    # in the source observations.  A gap longer than one composite period is
+    # treated as missing rather than being filled by np.interp.
+    # (same 16-day rule as the US-UMB/US-Ne3 scripts and 03_final_compare/)
+    def interpolate_without_long_nan_gaps(source_times, source_values, target_times,
+                                          max_gap_days=16):
+        source_times = pd.to_datetime(source_times)
+        target_times = pd.to_datetime(target_times)
+        source_values = np.asarray(source_values, dtype=float)
+        valid = np.isfinite(source_values)
+
+        source_time_ns = source_times.astype(np.int64).to_numpy()
+        target_time_ns = target_times.astype(np.int64).to_numpy()
+        valid_times = source_time_ns[valid]
+        valid_values = source_values[valid]
+
+        result = np.interp(target_time_ns, valid_times, valid_values).astype(float)
+        result[(target_times < source_times.iloc[0]) |
+               (target_times > source_times.iloc[-1])] = np.nan
+
+        # Mask intervals between valid observations when the intervening source
+        # gap (including its endpoints) is longer than the allowed duration.
+        max_gap = pd.Timedelta(days=max_gap_days).value
+        valid_indices = np.flatnonzero(valid)
+        for left, right in zip(valid_indices[:-1], valid_indices[1:]):
+            if source_time_ns[right] - source_time_ns[left] > max_gap:
+                result[(target_time_ns > source_time_ns[left]) &
+                       (target_time_ns < source_time_ns[right])] = np.nan
+
+        return pd.Series(result, index=MCD19_QC1_pt.time.values)
+
+
+    photospec_cci_interp = interpolate_without_long_nan_gaps(
+        Photospec_times_filtered, Photospec_df_filtered['CCI'].values,
+        MCD19_QC1_pt.time.values
+    )
+
+    photospec_ndvi_interp = interpolate_without_long_nan_gaps(
+        Photospec_times_filtered, Photospec_df_filtered['NDVI'].values,
+        MCD19_QC1_pt.time.values
     )
 
 

@@ -54,6 +54,12 @@ FloX_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/data/FloX/
 FloX_2018_file = os.path.join(FloX_dir, 'DFlox_SIF_VIs_2018.csv')
 FloX_2019_file = os.path.join(FloX_dir, 'DFlox_SIF_VIs_2019.csv')
 
+# MCD19 mean overpass time at US-Ne3 is 12:04 local mean solar time (LMST). FloX DateTime is UTC, so
+# convert to LMST (UTC + lon/15) before selecting FloX times within +/- 1 hr of overpass
+FloX_utc_to_LMST = pd.Timedelta(hours=-96.4397 / 15)
+overpass_window = ('11:04', '13:04')
+overpass_window_times = tuple(pd.Timestamp(t).time() for t in overpass_window)
+
 plot_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/plots/CVMVC_QC_regression_stats/final/'
 panel_dir = os.path.join(plot_dir, 'panels')
 os.makedirs(panel_dir, exist_ok=True)
@@ -95,13 +101,13 @@ def load_flox_year(path, year, doy_offset=0):
     df = df[df['DoY'].between(1, 366)]
     df['DateTime'] = pd.to_datetime(df['DateTime'])
     df = df[df['DateTime'].between(f'{year}-01-01', f'{year}-12-31')]
-    df = df[df['DateTime'].dt.time.between(pd.Timestamp('13:00').time(), pd.Timestamp('14:00').time())]
+    df = df[(df['DateTime'] + FloX_utc_to_LMST).dt.time.between(*overpass_window_times)]
     df = df[df['NDVI'].between(0, 1)]
     return remove_running_window_outliers(df)
 
 
 def load_reference_times():
-    """Return (all times, 13-14h times) of the ground-based record (FloX daily means)."""
+    """Return (all times, overpass-window times) of the ground-based record (FloX daily means)."""
     df = pd.concat([
         load_flox_year(FloX_2018_file, 2018),
         load_flox_year(FloX_2019_file, 2019, doy_offset=365),
@@ -109,7 +115,7 @@ def load_reference_times():
     df['Date'] = pd.to_datetime(df['DateTime']).dt.normalize()
     df = df.groupby('Date', as_index=False).mean(numeric_only=True)
     times = pd.to_datetime(df['Date'])
-    # FloX data are already restricted to 13-14h before daily averaging
+    # FloX data are already restricted to the overpass window before daily averaging
     return times, times
 
 

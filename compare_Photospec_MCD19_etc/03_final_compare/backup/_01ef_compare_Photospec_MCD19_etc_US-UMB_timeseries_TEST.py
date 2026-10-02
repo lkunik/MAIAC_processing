@@ -87,6 +87,14 @@ Photospec_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/data/
 Photospec_2018_file = os.path.join(Photospec_dir, 'PhotoSpecM1_2018_v20260903.nc')
 Photospec_2019_file = os.path.join(Photospec_dir, 'PhotoSpecM1_2019_v20260903.nc')
 
+# MCD19 mean overpass time at US-UMB is 12:21 local mean solar time (LMST) = 13:00 EST (PhotoSpec clock).
+# PhotoSpec data are 90-min averages (Hour_of_Day = interval start); HOD index 8 (12:00-13:30 EST)
+# is the period that best matches overpass +/- 1 hr
+Photospec_HOD_idx = 8
+Photospec_HOD_start = pd.Timedelta(hours=12)
+overpass_window = ('12:00', '13:30')
+overpass_window_times = tuple(pd.Timestamp(t).time() for t in overpass_window)
+
 MOD13_dir = os.path.join(dat_pt_basedir, 'MOD13')
 MOD13_file = os.path.join(MOD13_dir, f'MOD13_pt_{site_name}.nc')
 MCD43_dir = os.path.join(dat_pt_basedir, 'MCD43')
@@ -257,21 +265,21 @@ Photospec_xr_2019 = xr.open_dataset(Photospec_2019_file)
 
 
 # Format Photospec data into a single DataFrame with datetime index (like other PS datasets)
-Photospec_df_2018 = Photospec_xr_2018.sel(HOD=9).to_dataframe().reset_index()
+Photospec_df_2018 = Photospec_xr_2018.sel(HOD=Photospec_HOD_idx).to_dataframe().reset_index()
 
 Photospec_df_2018['Time'] = (
     pd.Timestamp('2018-01-01')
     + pd.to_timedelta(Photospec_df_2018['DOY'].astype(int), unit='D')
-    + pd.Timedelta(hours=13, minutes=30)
+    + Photospec_HOD_start
 )
 
 
-Photospec_df_2019 = Photospec_xr_2019.sel(HOD=9).to_dataframe().reset_index()
+Photospec_df_2019 = Photospec_xr_2019.sel(HOD=Photospec_HOD_idx).to_dataframe().reset_index()
 
 Photospec_df_2019['Time'] = (
     pd.Timestamp('2019-01-01')
     + pd.to_timedelta(Photospec_df_2019['DOY'].astype(int), unit='D')
-    + pd.Timedelta(hours=13, minutes=30)
+    + Photospec_HOD_start
 )
 
 Photospec_df = pd.concat([Photospec_df_2018, Photospec_df_2019], ignore_index=True)
@@ -296,8 +304,8 @@ MCD43_times = np.array([np.datetime64(t) for t in MCD43_pt['time'].values])
 GCOM_times = np.array([np.datetime64(t) for t in GCOM_pt['time'].values])
 MOD09_times = np.array([np.datetime64(t) for t in MOD09_pt['time'].values])
 
-# Filter Photospec_df for times between 13:00 and 14:00
-mask = (Photospec_times.dt.hour >= 13) & (Photospec_times.dt.hour < 14)
+# Filter Photospec_df for MCD19 overpass time +/- 1 hr (see overpass_window)
+mask = Photospec_times.dt.time.between(*overpass_window_times, inclusive='left')
 Photospec_df_filtered = Photospec_df[mask].reset_index(drop=True)
 Photospec_times_filtered = Photospec_times[mask].reset_index(drop=True)
 
@@ -1117,10 +1125,10 @@ plt.show()
 ### Replaces everything from "### Calculate fit params" to the end of the script.
 #~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#
 
-# Max allowed distance (days) between a product timestamp and the nearest valid
-# PhotoSpec observation. None = no limit (matches the old behavior, where np.interp
-# draws a straight line across multi-month winter gaps). ~16 is a reasonable value.
-MAX_GAP_DAYS = None
+# Longest gap (days) between consecutive valid PhotoSpec observations that interpolation
+# is allowed to bridge. Product timestamps falling inside a longer gap are set to NaN.
+# 16 matches the rule in the 01_QC_compare and 02_gapfill_compare scripts. None = no limit.
+MAX_GAP_DAYS = 16
 
 # Minimum number of paired timesteps required to compute stats
 MIN_N = 3
@@ -1139,7 +1147,8 @@ def interp_photospec_to_times(target_times, ps_times, ps_vals, max_gap_days=None
     Linearly interpolate PhotoSpec values onto target_times.
     - NaN PhotoSpec values are dropped before interpolating (np.interp does not skip NaNs)
     - Targets outside the PhotoSpec time range are set to NaN
-    - Optionally, targets farther than max_gap_days from any valid PhotoSpec obs are set to NaN
+    - Optionally, targets that fall strictly inside a gap between consecutive valid PhotoSpec
+      observations longer than max_gap_days are set to NaN
     """
     xt = to_ns_int(target_times)
     x = to_ns_int(ps_times)
@@ -1160,11 +1169,14 @@ def interp_photospec_to_times(target_times, ps_times, ps_vals, max_gap_days=None
     out[(xt < x[0]) | (xt > x[-1])] = np.nan
 
     if max_gap_days is not None:
-        idx = np.searchsorted(x, xt)
-        left = np.clip(idx - 1, 0, x.size - 1)
-        right = np.clip(idx, 0, x.size - 1)
-        dist = np.minimum(np.abs(xt - x[left]), np.abs(x[right] - xt))
-        out[dist > pd.Timedelta(days=max_gap_days).value] = np.nan
+        long_gap = np.diff(x) > pd.Timedelta(days=max_gap_days).value  # gap after obs i
+        left = np.searchsorted(x, xt, side='right') - 1                # left neighbor index
+        in_interval = (left >= 0) & (left < x.size - 1)
+        exact_hit = np.zeros(xt.shape, dtype=bool)
+        exact_hit[left >= 0] = x[left[left >= 0]] == xt[left >= 0]
+        bad = np.zeros(xt.shape, dtype=bool)
+        bad[in_interval] = long_gap[left[in_interval]]
+        out[bad & ~exact_hit] = np.nan
 
     return out
 
@@ -1250,7 +1262,7 @@ if PLOT_SANITY:
             continue
         fig, ax = plt.subplots(figsize=(7, 3))
         ax.scatter(Photospec_times_filtered.dt.dayofyear, Photospec_df_filtered[var],
-                   color='gray', s=14, alpha=0.5, label='PhotoSpec daily, 13-14h')
+                   color='gray', s=14, alpha=0.5, label=f'PhotoSpec daily, {overpass_window[0]}-{overpass_window[1]}')
         ax.scatter(pair.index.dayofyear, pair['photospec'], color='black', s=28,
                    marker='^', label='PhotoSpec interp')
         ax.scatter(pair.index.dayofyear, pair['product'], color='red', s=28,

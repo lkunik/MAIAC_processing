@@ -5,7 +5,7 @@
 # Contact: lewis.kunik@utah.edu
 #
 # Supplement: tower (PhotoSpec) and MCD19 vs. each comparison
-# satellite product individually at US-NR1. One panel per product and index:
+# satellite product individually at US-UMB. One panel per product and index:
 #   NDVI: MOD09, GCOM-C, MOD13, MCD43
 #   CCI:  MOD09, GCOM-C
 # Comparison products are drawn as lines. Input files, tower overpass-window
@@ -28,16 +28,18 @@ from matplotlib.ticker import FuncFormatter as FFmt
 # Site settings
 #########################################
 
-site_name = 'US-NR1'
-plot_title = 'US-NR1'
-panel_letters = ('g', 'h')          # (NDVI, CCI) for MOD09/GCOM-C; (MOD13, MCD43) for the NDVI-only products
+site_name = 'US-UMB'
+plot_title = 'US-UMB'
+panel_letters = ('e', 'f')          # (NDVI, CCI) for MOD09/GCOM-C; (MOD13, MCD43) for the NDVI-only products
 figsize = (7, 3)
 month_ticks = [1, 4, 7, 10]
 NDVI_MIN = 0.6                 # PhotoSpec NDVI floor (None = no filter)
 
 winter_periods = [
     # Ground snow cover periods
-    (pd.Timestamp('2017-09-25'), pd.Timestamp('2018-05-30'))
+    (pd.Timestamp('2017-11-04'), pd.Timestamp('2018-05-01')),
+    (pd.Timestamp('2018-11-09'), pd.Timestamp('2019-04-23')),
+    (pd.Timestamp('2019-11-06'), pd.Timestamp('2020-04-24')),
 ]
 
 #########################################
@@ -55,13 +57,16 @@ product_files = {
     for prod in ['MOD09', 'GCOM', 'MOD13', 'MCD43']
 }
 
-Photospec_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/data/PhotoSpec'
-Photospec_file = os.path.join(Photospec_dir, f'PhotoSpec_{site_name}.csv')
+Photospec_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/data/PhotoSpec/US-UMB/'
+Photospec_2018_file = os.path.join(Photospec_dir, 'PhotoSpecM1_2018_v20260903.nc')
+Photospec_2019_file = os.path.join(Photospec_dir, 'PhotoSpecM1_2019_v20260903.nc')
 
-# MCD19 mean overpass time at US-NR1 is 12:24 local mean solar time (LMST) = 12:26 MST (PhotoSpec clock).
-# Select PhotoSpec times within +/- 1 hr of overpass, rounded to the nearest half hour: [start, end)
-# (US-NR1 PhotoSpec data are hourly, so this selects the 12:00 and 13:00 values)
-overpass_window = ('11:30', '13:30')
+# MCD19 mean overpass time at US-UMB is 12:21 local mean solar time (LMST) = 13:00 EST (PhotoSpec clock).
+# PhotoSpec data are 90-min averages (Hour_of_Day = interval start); HOD index 8 (12:00-13:30 EST)
+# is the period that best matches overpass +/- 1 hr
+Photospec_HOD_idx = 8
+Photospec_HOD_start = pd.Timedelta(hours=12)
+overpass_window = ('12:00', '13:30')
 overpass_window_times = tuple(pd.Timestamp(t).time() for t in overpass_window)
 
 plot_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/plots/CVMVC_QC_regression_stats/final/supplement/'
@@ -98,20 +103,27 @@ panels = [
 
 def load_reference():
     """
-    Return (window times, filtered times, filtered daily DataFrame) of the tower record.
-    Window times set the MCD19 time window; filtered = overpass-window daily means.
+    Return (window times, filtered times, filtered DataFrame) of the tower record.
+    US-UMB PhotoSpec has one 90-min average per day at HOD index Photospec_HOD_idx.
     """
-    df = pd.read_csv(Photospec_file)
+    dfs = []
+    for year, f in [(2018, Photospec_2018_file), (2019, Photospec_2019_file)]:
+        df = xr.open_dataset(f).sel(HOD=Photospec_HOD_idx).to_dataframe().reset_index()
+        df['Time'] = (
+            pd.Timestamp(f'{year}-01-01')
+            + pd.to_timedelta(df['DOY'].astype(int), unit='D')
+            + Photospec_HOD_start
+        )
+        dfs.append(df)
+    df = pd.concat(dfs, ignore_index=True)
     if NDVI_MIN is not None:
         df = df[df['NDVI'] >= NDVI_MIN].reset_index(drop=True)
-    times = pd.to_datetime(df['Time'], format='%m/%d/%y %H:%M')
+    times = pd.to_datetime(df['Time'])
 
     # Filter for MCD19 overpass time +/- 1 hr (see overpass_window)
     mask = times.dt.time.between(*overpass_window_times, inclusive='left')
-    # Average the overpass-window PhotoSpec obs to daily means (~4 obs/day; 2 for hourly US-NR1)
-    df_filtered = df[mask].assign(Time=times[mask].dt.normalize())
-    df_filtered = df_filtered.groupby('Time', as_index=False).mean(numeric_only=True)
-    return times, df_filtered['Time'], df_filtered
+    df_filtered = df[mask].reset_index(drop=True)
+    return times, times[mask].reset_index(drop=True), df_filtered
 
 
 def to_datetimeindex(times):

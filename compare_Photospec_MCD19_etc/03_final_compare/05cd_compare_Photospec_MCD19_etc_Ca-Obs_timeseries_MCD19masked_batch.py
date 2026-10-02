@@ -4,6 +4,12 @@
 # Author: Lewis Kunik - University of Utah
 # Contact: lewis.kunik@utah.edu
 #
+# MCD19-masked version of 01cd_compare_Photospec_MCD19_etc_Ca-Obs_timeseries_batch.py: MOD13, MOD09, MCD43 and GCOM
+# are put on the MCD19 composite time axis (MCD43 averaged from 8-day to the 16-day MCD19
+# composite periods) and their NDVI/CCI masked wherever MCD19 has no valid value, so every
+# product is compared with the tower record at the same composites as MCD19.
+# Outputs go to the final/MCD19masked/ plot and stats directories.
+#
 # Created on Tue Oct 24 2023
 #
 #
@@ -52,7 +58,6 @@ from shapely.geometry import mapping
 import cftime
 import random
 from matplotlib.patches import Patch
-from matplotlib.lines import Line2D
 from matplotlib.dates import MonthLocator, DateFormatter
 from matplotlib.ticker import MultipleLocator
 import matplotlib.colors as mcolors
@@ -69,9 +74,9 @@ import cartopy.feature as cfeature
 
 
 #%%
-site_name = 'DEJU'
-plot_title = 'US-xDJ'
-MODIS_tile = 'h11v02'
+site_name = 'Ca-Obs'
+plot_title = 'CA-Obs'
+MODIS_tile = 'h11v03'
 
 QC_descr = "CloudFree_LowAOD_ClearAdj"
 
@@ -86,9 +91,9 @@ MCD19_QC_file = os.path.join(dat_pt_basedir_QC, f'MCD19_QCfilt_{QC_descr}_{site_
 Photospec_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/data/PhotoSpec'
 Photospec_file = os.path.join(Photospec_dir, f'PhotoSpec_{site_name}.csv')
 
-# MCD19 mean overpass time at DEJU is 11:42 local mean solar time (LMST) = 12:25 AKST (PhotoSpec clock).
+# MCD19 mean overpass time at Ca-Obs is 11:51 local mean solar time (LMST) = 12:51 CST (PhotoSpec clock).
 # Select PhotoSpec times within +/- 1 hr of overpass, rounded to the nearest half hour: [start, end)
-overpass_window = ('11:30', '13:30')
+overpass_window = ('12:00', '14:00')
 overpass_window_times = tuple(pd.Timestamp(t).time() for t in overpass_window)
 
 MOD13_dir = os.path.join(dat_pt_basedir, 'MOD13')
@@ -101,10 +106,10 @@ GCOM_file = os.path.join(GCOM_dir, f'GCOM_pt_{site_name}.nc')
 MOD09_dir = os.path.join(dat_pt_basedir, 'MOD09')
 MOD09_file = os.path.join(MOD09_dir, f'MOD09_pt_{site_name}.nc')
 
-out_stats_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/output/CVMVC_QC_regression_stats/final/'
+out_stats_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/output/CVMVC_QC_regression_stats/final/MCD19masked/'
 os.makedirs(out_stats_dir, exist_ok=True)
 
-plot_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/plots/CVMVC_QC_regression_stats/final/'
+plot_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/plots/CVMVC_QC_regression_stats/final/MCD19masked/'
 os.makedirs(plot_dir, exist_ok=True)
 
 panel_dir = os.path.join(plot_dir, 'panels')
@@ -247,6 +252,44 @@ composite_years = np.arange(int(site_info[site_name]['start'][:4]), int(site_inf
 # Begin main
 #########################################
 #%%
+
+def match_to_mcd19_composites(ds, mcd19_ds, elements=('NDVI', 'CCI')):
+    """
+    Put a comparison product on the MCD19 composite time axis (apples-to-apples comparison).
+    - Each MCD19 timestamp is the start of a 16-day composite period, which ends at the next
+      16-day step or at the end of the year, whichever comes first (the last composite of each
+      year is 13-14 days).
+    - Product values with timestamps inside a composite period are averaged (NaNs skipped).
+      MOD09, GCOM and MOD13 already share the MCD19 composite dates, so for them this is a
+      one-to-one match; MCD43 (8-day steps) is averaged to the 16-day periods.
+    - NDVI and CCI are masked wherever MCD19 has no valid value for that element.
+    """
+    t = np.asarray(ds['time'].values)
+    if t.size and not np.issubdtype(t.dtype, np.datetime64):
+        prod_times = pd.to_datetime([x.isoformat() for x in t])  # cftime (e.g. Julian-calendar MOD13)
+    else:
+        prod_times = pd.to_datetime(t)
+    starts = pd.to_datetime(mcd19_ds['time'].values)
+    ends = pd.DatetimeIndex([min(s + pd.Timedelta(days=16), pd.Timestamp(year=s.year + 1, month=1, day=1))
+                             for s in starts])
+
+    out = xr.Dataset(coords={'time': starts.values})
+    for var in ds.data_vars:
+        if ds[var].dims != ('time',) or not np.issubdtype(ds[var].dtype, np.number):
+            continue
+        vals = ds[var].values.astype(float)
+        binned = np.full(len(starts), np.nan)
+        for i, (start, end) in enumerate(zip(starts, ends)):
+            v = vals[(prod_times >= start) & (prod_times < end)]
+            v = v[np.isfinite(v)]
+            if v.size:
+                binned[i] = v.mean()
+        if var in elements and var in mcd19_ds:
+            binned[~np.isfinite(mcd19_ds[var].values)] = np.nan
+        out[var] = ('time', binned)
+    return out
+
+
 def main():
 
     # mark start time to keep track of elapsed
@@ -262,8 +305,8 @@ def main():
     Photospec_df = pd.read_csv(Photospec_file)
     print("Photospec_df columns:", Photospec_df.columns.tolist())
 
-    # Remove any data from Photospec_df where NDVI is below 0.6
-    # Photospec_df = Photospec_df[Photospec_df['NDVI'] >= 0.6].reset_index(drop=True)
+    # Remove any data from Photospec_df where NDVI is below 0.4
+    Photospec_df = Photospec_df[Photospec_df['NDVI'] >= 0.4].reset_index(drop=True)
     # Convert Photospec timestamps from "M/D/YY HH:MM" format to datetime64
     Photospec_times = pd.to_datetime(Photospec_df['Time'], format='%m/%d/%y %H:%M')
 
@@ -276,6 +319,14 @@ def main():
     ))
 
     MCD19_QC_times = np.array([np.datetime64(t) for t in MCD19_QC_pt['time'].values])
+
+    # Match the comparison products to the MCD19 composites (apples-to-apples): average each product
+    # within each MCD19 16-day composite period (resamples 8-day MCD43), then mask NDVI/CCI wherever
+    # MCD19 has no valid value for that element
+    MOD13_pt = match_to_mcd19_composites(MOD13_pt, MCD19_QC_pt)
+    MCD43_pt = match_to_mcd19_composites(MCD43_pt, MCD19_QC_pt)
+    GCOM_pt = match_to_mcd19_composites(GCOM_pt, MCD19_QC_pt)
+    MOD09_pt = match_to_mcd19_composites(MOD09_pt, MCD19_QC_pt)
 
     MOD13_times = np.array([np.datetime64(t) for t in MOD13_pt['time'].values])
     MCD43_times = np.array([np.datetime64(t) for t in MCD43_pt['time'].values])
@@ -313,39 +364,12 @@ def main():
 
     # Plot shaded regions for winter periods
     winter_periods = [
-        # Ground snow cover periods
-        (pd.Timestamp('2018-10-28'), pd.Timestamp('2019-04-15')),
-        (pd.Timestamp('2019-10-02'), pd.Timestamp('2020-05-05')),
-        (pd.Timestamp('2020-10-13'), pd.Timestamp('2021-05-05')),
-        (pd.Timestamp('2021-09-20'), pd.Timestamp('2022-05-20'))
+        (pd.Timestamp('2018-10-30'), pd.Timestamp('2019-04-25')),
+        (pd.Timestamp('2019-10-26'), pd.Timestamp('2020-05-05')),
+        (pd.Timestamp('2020-10-15'), pd.Timestamp('2021-04-20')),
+        (pd.Timestamp('2021-11-11'), pd.Timestamp('2022-05-10')),
+        (pd.Timestamp('2022-11-02'), pd.Timestamp('2023-04-30'))
     ]
-
-    ############################################
-    ### Standalone legend image (loaded by 01_plot_final_compare_panels.py)
-    ############################################
-
-    # Proxy handles matching the plot styles used in the NDVI/CCI panels below (same styles at every site)
-    def scatter_handle(color, marker, s):
-        return Line2D([], [], color=color, marker=marker, markersize=np.sqrt(s), linestyle='none',
-                      markeredgecolor='black', markeredgewidth=0.5)
-
-    legend_entries = [
-        (Line2D([], [], color='black', marker='o', linestyle='none', markersize=4, alpha=0.7), 'Tower (PhotoSpec / FloX)'),
-        (Line2D([], [], color=MCD19_QC_color, marker='o', markersize=8, linewidth=3.5,
-                markeredgecolor='black', markeredgewidth=0.5), 'MCD19'),
-        (scatter_handle(MOD09_color, '^', 60), 'MOD09'),
-        (scatter_handle(GCOM_color, '^', 60), 'GCOM-C'),
-        (scatter_handle(MOD13_color, 's', 35), 'MOD13 (NDVI only)'),
-        (scatter_handle(MCD43_color, 's', 35), 'MCD43 (NDVI only)'),
-        (Patch(facecolor='lightblue', alpha=0.5), 'Snow cover'),
-    ]
-
-    handles, labels = zip(*legend_entries)
-    fig_leg = plt.figure(figsize=(11, 1))
-    fig_leg.legend(handles, labels, loc='center', ncol=4, frameon=False)
-    legend_file = os.path.join(panel_dir, 'final_compare_legend.png')
-    fig_leg.savefig(legend_file, dpi=300, bbox_inches='tight')
-    plt.close(fig_leg)
 
     # %%
 
@@ -368,7 +392,7 @@ def main():
 
 
     #%%
-    fig, ax = plt.subplots(figsize=(7, 3))
+    fig, ax = plt.subplots(figsize=(14, 3))
 
     for start, end in winter_periods:
         ax.axvspan(start, end, color='lightblue', alpha=0.5)
@@ -385,14 +409,14 @@ def main():
 
     ax.set_ylim(mcd19_ndvi_min - (mcd19_ndvi_range*0.15), mcd19_ndvi_max + (mcd19_ndvi_range*0.05))
     ax.yaxis.set_major_formatter(FFmt(lambda y, _: f'{y:.1f}'))
-    ax.yaxis.set_major_locator(MultipleLocator(0.3))
+    ax.yaxis.set_major_locator(MultipleLocator(0.2))
 
 
     ax.set_xlim(Photospec_times_filtered.min() - pd.Timedelta(days=10), Photospec_times_filtered.max() + pd.Timedelta(days=10))
-    ax.xaxis.set_major_locator(MonthLocator(bymonth=[1, 7]))
+    ax.xaxis.set_major_locator(MonthLocator(bymonth=[1]))
     ax.xaxis.set_major_formatter(DateFormatter('%b\n%Y'))
-    # ax.set_title('a)', loc='left')
-    ax.set_title(f'a)  {plot_title}', loc='center')
+    # ax.set_title('c)', loc='left')
+    ax.set_title(f'c)  {plot_title}', loc='center')
     ax.set_ylabel('NDVI')
 
     plt.tight_layout()
@@ -416,7 +440,7 @@ def main():
     mcd19_cci_max = np.nanmax(np.concatenate(cci_arrays))
     mcd19_cci_range = mcd19_cci_max - mcd19_cci_min
 
-    fig, ax = plt.subplots(figsize=(7, 3))
+    fig, ax = plt.subplots(figsize=(14, 3))
 
     for start, end in winter_periods:
         ax.axvspan(start, end, color='lightblue', alpha=0.5)
@@ -429,20 +453,18 @@ def main():
 
     ax.set_ylim(mcd19_cci_min - (mcd19_cci_range*0.05), mcd19_cci_max + (mcd19_cci_range*0.05))
     ax.yaxis.set_major_formatter(FFmt(lambda y, _: f'{y:.1f}'))
-    ax.yaxis.set_major_formatter(FFmt(lambda y, _: f'{y:.1f}'))
-    ax.yaxis.set_major_locator(MultipleLocator(0.1))
-    ax.yaxis.set_major_locator(MultipleLocator(0.1))
+    ax.yaxis.set_major_locator(MultipleLocator(0.2))
     ax.set_xlim(Photospec_times_filtered.min() - pd.Timedelta(days=10), Photospec_times_filtered.max() + pd.Timedelta(days=10))
-    ax.xaxis.set_major_locator(MonthLocator(bymonth=[1, 7]))
+    ax.xaxis.set_major_locator(MonthLocator(bymonth=[1]))
     ax.xaxis.set_major_formatter(DateFormatter('%b\n%Y'))
-    # ax.set_title('b)', loc='left')
-    ax.set_title(f'b)  {plot_title}', loc='center')
+    # ax.set_title('d)', loc='left')
+    ax.set_title(f'd)  {plot_title}', loc='center')
     ax.set_ylabel('CCI')
 
     plt.tight_layout()
-
     cci_panel_file = os.path.join(panel_dir, f'{site_name}_CCI_panel.png')
     plt.savefig(cci_panel_file, dpi=300, bbox_inches='tight')
+
 
 
     # #%%
@@ -578,6 +600,8 @@ def main():
     # if not mod09_interp_times.equals(photospec_cci_interp_times):
     #     raise ValueError("MOD09_interp and photospec_cci_interp timestamps do not match")
     # print(f"MOD09_interp timestamps match photospec_cci_interp ({len(MOD09_interp.time)} timestamps)")
+
+
 
     # # Only compare where both are valid (not nan)
     # valid_mask = (~np.isnan(MOD09_interp['CCI'].values)) & (~np.isnan(photospec_cci_interp.values))
@@ -753,8 +777,8 @@ def main():
     #     crmse = np.sqrt(np.nanmean(((y - np.nanmean(y)) - (x - np.nanmean(x)))**2))
     #     bias = np.nanmean(y) - np.nanmean(x)
     #     ndvi_fit_stats = [r_value**2, spear_r, crmse, bias]
-    #     fit_stats_df.loc[('GCOM', 'NDVI'), :] = [r_value**2, bias, crmse, spear_r, spear_p]
 
+    #     fit_stats_df.loc[('GCOM', 'NDVI'), :] = [r_value**2, bias, crmse, spear_r, spear_p]
     #     print(f"GCOM vs PhotoSpec NDVI Fit parameters (interp): R^2={r_value**2:.3f}, bias={bias:.3f}, CRMSE={crmse:.3f}, Spearman r={spear_r:.3f}, p-value={spear_p:.3e}")
     # else:
     #     print("Not enough valid data for regression (interp).")
@@ -801,6 +825,8 @@ def main():
 
     # fit_stats_outfile = os.path.join(out_stats_dir, f'PhotoSpec_v_MCD19_etc_fit_stats_{site_name}.csv')
     # fit_stats_df.to_csv(fit_stats_outfile)
+
+
 
 
     #%%
@@ -907,7 +933,7 @@ def main():
     # ---------------------------------------------------------------------
     products = {
         'MCD19': MCD19_QC_pt,
-        'MCD43': MCD43_pt.interp(time=MCD19_QC_pt.time),
+        'MCD43': MCD43_pt,
         'MOD09': MOD09_pt,
         'MOD13': MOD13_pt,
         'GCOM': GCOM_pt,
@@ -963,7 +989,7 @@ def main():
 
 
     fit_stats_outfile = os.path.join(out_stats_dir, f'PhotoSpec_v_MCD19_etc_fit_stats_{site_name}.csv')
-    fit_stats_df.to_csv(fit_stats_outfile)
+    fit_stats_df.to_csv(fit_stats_outfile)  
 
 if __name__ == "__main__":
     main()

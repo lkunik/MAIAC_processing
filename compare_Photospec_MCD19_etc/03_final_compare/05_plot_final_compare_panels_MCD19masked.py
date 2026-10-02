@@ -10,7 +10,10 @@
 # in the right column. Sites in wide_sites (long time series, saved at
 # double width) instead get one full-width row each for NDVI and CCI.
 #
-# Run 01a-01f (or run_all_QC_compare.sh) first so the panel PNGs exist.
+# MCD19-masked version (05ab-05kl scripts): comparison products on the MCD19 composites
+# and masked where MCD19 has no valid value.
+#
+# Run 05ab-05kl (or 05-run_all_final_compare_MCD19masked.sh) first so the panel PNGs exist.
 
 #%%
 import os
@@ -18,7 +21,7 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 from matplotlib.gridspec import GridSpec
 
-plot_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/plots/CVMVC_QC_regression_stats/final/'
+plot_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/plots/CVMVC_QC_regression_stats/final/MCD19masked/'
 panel_dir = os.path.join(plot_dir, 'panels')
 
 # Row order, top to bottom. site_name values match those set in the
@@ -46,7 +49,7 @@ for imgs in rows:
     col_frac = 1 / len(imgs)
     height_ratios.append(max(img.shape[0] / img.shape[1] * col_frac for img in imgs))
 
-# Legend image saved by 01ab; drawn in a row spanning both columns at the same inches-per-pixel as the panels
+# Legend image saved by 05ab; drawn in a row spanning both columns at the same inches-per-pixel as the panels
 legend_img = mpimg.imread(os.path.join(panel_dir, 'final_compare_legend.png'))
 in_per_px = fig_width / max(sum(img.shape[1] for img in imgs) for imgs in rows)
 height_ratios.append(legend_img.shape[0] * in_per_px / fig_width)
@@ -72,5 +75,9 @@ ax_legend = fig.add_subplot(gs[-1, :])
 ax_legend.imshow(legend_img)
 ax_legend.set_anchor('C')
 ax_legend.axis('off')
+
+summary_fig_file = os.path.join(plot_dir, 'final_compare_MCD19masked_summary_panel_figure.png')
+plt.savefig(summary_fig_file, dpi=300, bbox_inches='tight')
+print(f'Saved summary panel figure to {summary_fig_file}')
 
 plt.show()

@@ -272,6 +272,25 @@ def main():
         if len(MCD19_QC_arr) > 0:
             # Compile arrays and compute VIs
             MCD19_QC_pt = xr.concat(MCD19_QC_arr, dim='time')
+
+            # Summarize orbit_local_solar_time (decimal hours, local mean solar time) if present
+            n_with_lst = sum('orbit_local_solar_time' in ds_pt.data_vars for ds_pt in MCD19_QC_arr)
+            print(f"orbit_local_solar_time present in {n_with_lst} of {len(MCD19_QC_arr)} composites")
+            if 'orbit_local_solar_time' in MCD19_QC_pt.data_vars:
+                lst_hours = MCD19_QC_pt.orbit_local_solar_time.values.astype(float).ravel()
+                lst_hours = lst_hours[np.isfinite(lst_hours)]
+                if len(lst_hours) > 0:
+                    lst_mean_hr = np.mean(lst_hours)
+                    lst_std_td = timedelta(hours=float(np.std(lst_hours)))
+                    lst_mean_td = timedelta(hours=float(lst_mean_hr))
+                    print(f"{site_name} mean orbit_local_solar_time: {lst_mean_hr:.3f} h "
+                          f"({int(lst_mean_td.total_seconds()//3600):02d}:{td_min(lst_mean_td)%60:02d}:{td_sec(lst_mean_td):02d} local solar time) "
+                          f"+/- {lst_std_td} (std, n={len(lst_hours)})")
+                else:
+                    print(f"{site_name}: orbit_local_solar_time is all NaN at this pixel")
+            else:
+                print(f"{site_name}: orbit_local_solar_time not found in MCD19 QC files")
+
             MCD19_QC_pt = MCD19_QC_pt.assign(CCI = (MCD19_QC_pt.Sur_refl11 - MCD19_QC_pt.Sur_refl1) / (MCD19_QC_pt.Sur_refl11 + MCD19_QC_pt.Sur_refl1))
             MCD19_QC_pt = MCD19_QC_pt.assign(NDVI = (MCD19_QC_pt.Sur_refl2 - MCD19_QC_pt.Sur_refl1) / (MCD19_QC_pt.Sur_refl2 + MCD19_QC_pt.Sur_refl1))
             

@@ -85,6 +85,11 @@ MCD19_QC_file = os.path.join(dat_pt_basedir_QC, f'MCD19_QCfilt_{QC_descr}_{site_
 Photospec_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/data/PhotoSpec'
 Photospec_file = os.path.join(Photospec_dir, f'PhotoSpec_{site_name}.csv')
 
+# MCD19 mean overpass time at DEJU is 11:42 local mean solar time (LMST) = 12:25 AKST (PhotoSpec clock).
+# Select PhotoSpec times within +/- 1 hr of overpass, rounded to the nearest half hour: [start, end)
+overpass_window = ('11:30', '13:30')
+overpass_window_times = tuple(pd.Timestamp(t).time() for t in overpass_window)
+
 MOD13_dir = os.path.join(dat_pt_basedir, 'MOD13')
 MOD13_file = os.path.join(MOD13_dir, f'MOD13_pt_{site_name}.nc')
 MCD43_dir = os.path.join(dat_pt_basedir, 'MCD43')
@@ -276,10 +281,12 @@ def main():
     GCOM_times = np.array([np.datetime64(t) for t in GCOM_pt['time'].values])
     MOD09_times = np.array([np.datetime64(t) for t in MOD09_pt['time'].values])
 
-    # Filter Photospec_df for times between 13:00 and 14:00
-    mask = (Photospec_times.dt.hour >= 13) & (Photospec_times.dt.hour < 14)
-    Photospec_df_filtered = Photospec_df[mask].reset_index(drop=True)
-    Photospec_times_filtered = Photospec_times[mask].reset_index(drop=True)
+    # Filter Photospec_df for MCD19 overpass time +/- 1 hr (see overpass_window)
+    mask = Photospec_times.dt.time.between(*overpass_window_times, inclusive='left')
+    # Average the overpass-window PhotoSpec obs to daily means (~4 obs/day; 2 for hourly US-NR1)
+    Photospec_df_filtered = Photospec_df[mask].assign(Time=Photospec_times[mask].dt.normalize())
+    Photospec_df_filtered = Photospec_df_filtered.groupby('Time', as_index=False).mean(numeric_only=True)
+    Photospec_times_filtered = Photospec_df_filtered['Time']
 
     # Set x-axis to month abbreviations at the start of each month
     months = np.arange(1, 13)
@@ -324,9 +331,9 @@ def main():
     mcd19_ndvi_lo = mcd19_ndvi - mcd19_ndvi_sig
     mcd19_ndvi_hi = mcd19_ndvi + mcd19_ndvi_sig
 
+    # y-limits from the overall range of tower and MCD19 data +/- 10% (sigma shading may extend beyond)
     ndvi_arrays = [
-        mcd19_ndvi_lo,
-        mcd19_ndvi_hi,
+        mcd19_ndvi,
         Photospec_df_filtered['NDVI'].values
     ]
     mcd19_ndvi_min = np.nanmin(np.concatenate(ndvi_arrays))
@@ -351,7 +358,7 @@ def main():
     ax.plot(MCD19_QC_times, mcd19_ndvi, color=MCD19_QC_color, marker='o', markersize=8, linewidth=3.5,
             alpha=1, markeredgecolor='black', markeredgewidth=0.5, zorder=3)
 
-    ax.set_ylim(mcd19_ndvi_min - (mcd19_ndvi_range*0.15), mcd19_ndvi_max + (mcd19_ndvi_range*0.05))
+    ax.set_ylim(mcd19_ndvi_min - (mcd19_ndvi_range*0.10), mcd19_ndvi_max + (mcd19_ndvi_range*0.10))
     ax.yaxis.set_major_formatter(FFmt(lambda y, _: f'{y:.1f}'))
     # ax.yaxis.set_major_locator(MultipleLocator(0.3))
 
@@ -375,9 +382,9 @@ def main():
     mcd19_cci_lo = mcd19_cci - mcd19_cci_sig
     mcd19_cci_hi = mcd19_cci + mcd19_cci_sig
 
+    # y-limits from the overall range of tower and MCD19 data +/- 10% (sigma shading may extend beyond)
     cci_arrays = [
-        mcd19_cci_lo,
-        mcd19_cci_hi,
+        mcd19_cci,
         Photospec_df_filtered['CCI'].values
     ]
     mcd19_cci_min = np.nanmin(np.concatenate(cci_arrays))
@@ -399,7 +406,7 @@ def main():
     ax.plot(MCD19_QC_times, mcd19_cci, color=MCD19_QC_color, marker='o', markersize=8, linewidth=3.5,
             alpha=1, markeredgecolor='black', markeredgewidth=0.5, zorder=3)
 
-    ax.set_ylim(mcd19_cci_min - (mcd19_cci_range*0.05), mcd19_cci_max + (mcd19_cci_range*0.05))
+    ax.set_ylim(mcd19_cci_min - (mcd19_cci_range*0.10), mcd19_cci_max + (mcd19_cci_range*0.10))
     ax.yaxis.set_major_formatter(FFmt(lambda y, _: f'{y:.1f}'))
     # ax.yaxis.set_major_locator(MultipleLocator(0.1))
     ax.set_xlim(Photospec_times_filtered.min() - pd.Timedelta(days=10), Photospec_times_filtered.max() + pd.Timedelta(days=10))

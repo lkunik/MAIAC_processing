@@ -4,6 +4,12 @@
 # Author: Lewis Kunik - University of Utah
 # Contact: lewis.kunik@utah.edu
 #
+# MCD19-masked version of 01ab_compare_Photospec_MCD19_etc_DEJU_timeseries_batch.py: MOD13, MOD09, MCD43 and GCOM
+# are put on the MCD19 composite time axis (MCD43 averaged from 8-day to the 16-day MCD19
+# composite periods) and their NDVI/CCI masked wherever MCD19 has no valid value, so every
+# product is compared with the tower record at the same composites as MCD19.
+# Outputs go to the final/MCD19masked/ plot and stats directories.
+#
 # Created on Tue Oct 24 2023
 #
 #
@@ -101,10 +107,10 @@ GCOM_file = os.path.join(GCOM_dir, f'GCOM_pt_{site_name}.nc')
 MOD09_dir = os.path.join(dat_pt_basedir, 'MOD09')
 MOD09_file = os.path.join(MOD09_dir, f'MOD09_pt_{site_name}.nc')
 
-out_stats_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/output/CVMVC_QC_regression_stats/final/'
+out_stats_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/output/CVMVC_QC_regression_stats/final/MCD19masked/'
 os.makedirs(out_stats_dir, exist_ok=True)
 
-plot_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/plots/CVMVC_QC_regression_stats/final/'
+plot_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/plots/CVMVC_QC_regression_stats/final/MCD19masked/'
 os.makedirs(plot_dir, exist_ok=True)
 
 panel_dir = os.path.join(plot_dir, 'panels')
@@ -247,6 +253,44 @@ composite_years = np.arange(int(site_info[site_name]['start'][:4]), int(site_inf
 # Begin main
 #########################################
 #%%
+
+def match_to_mcd19_composites(ds, mcd19_ds, elements=('NDVI', 'CCI')):
+    """
+    Put a comparison product on the MCD19 composite time axis (apples-to-apples comparison).
+    - Each MCD19 timestamp is the start of a 16-day composite period, which ends at the next
+      16-day step or at the end of the year, whichever comes first (the last composite of each
+      year is 13-14 days).
+    - Product values with timestamps inside a composite period are averaged (NaNs skipped).
+      MOD09, GCOM and MOD13 already share the MCD19 composite dates, so for them this is a
+      one-to-one match; MCD43 (8-day steps) is averaged to the 16-day periods.
+    - NDVI and CCI are masked wherever MCD19 has no valid value for that element.
+    """
+    t = np.asarray(ds['time'].values)
+    if t.size and not np.issubdtype(t.dtype, np.datetime64):
+        prod_times = pd.to_datetime([x.isoformat() for x in t])  # cftime (e.g. Julian-calendar MOD13)
+    else:
+        prod_times = pd.to_datetime(t)
+    starts = pd.to_datetime(mcd19_ds['time'].values)
+    ends = pd.DatetimeIndex([min(s + pd.Timedelta(days=16), pd.Timestamp(year=s.year + 1, month=1, day=1))
+                             for s in starts])
+
+    out = xr.Dataset(coords={'time': starts.values})
+    for var in ds.data_vars:
+        if ds[var].dims != ('time',) or not np.issubdtype(ds[var].dtype, np.number):
+            continue
+        vals = ds[var].values.astype(float)
+        binned = np.full(len(starts), np.nan)
+        for i, (start, end) in enumerate(zip(starts, ends)):
+            v = vals[(prod_times >= start) & (prod_times < end)]
+            v = v[np.isfinite(v)]
+            if v.size:
+                binned[i] = v.mean()
+        if var in elements and var in mcd19_ds:
+            binned[~np.isfinite(mcd19_ds[var].values)] = np.nan
+        out[var] = ('time', binned)
+    return out
+
+
 def main():
 
     # mark start time to keep track of elapsed
@@ -276,6 +320,14 @@ def main():
     ))
 
     MCD19_QC_times = np.array([np.datetime64(t) for t in MCD19_QC_pt['time'].values])
+
+    # Match the comparison products to the MCD19 composites (apples-to-apples): average each product
+    # within each MCD19 16-day composite period (resamples 8-day MCD43), then mask NDVI/CCI wherever
+    # MCD19 has no valid value for that element
+    MOD13_pt = match_to_mcd19_composites(MOD13_pt, MCD19_QC_pt)
+    MCD43_pt = match_to_mcd19_composites(MCD43_pt, MCD19_QC_pt)
+    GCOM_pt = match_to_mcd19_composites(GCOM_pt, MCD19_QC_pt)
+    MOD09_pt = match_to_mcd19_composites(MOD09_pt, MCD19_QC_pt)
 
     MOD13_times = np.array([np.datetime64(t) for t in MOD13_pt['time'].values])
     MCD43_times = np.array([np.datetime64(t) for t in MCD43_pt['time'].values])
@@ -907,7 +959,7 @@ def main():
     # ---------------------------------------------------------------------
     products = {
         'MCD19': MCD19_QC_pt,
-        'MCD43': MCD43_pt.interp(time=MCD19_QC_pt.time),
+        'MCD43': MCD43_pt,
         'MOD09': MOD09_pt,
         'MOD13': MOD13_pt,
         'GCOM': GCOM_pt,

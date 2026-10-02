@@ -2,18 +2,18 @@
 
 BASEDIR="/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI"
 
-# YEARS=$(seq 2016 2016)
+# YEARS=$(seq 2018 2019)
 YEARS=$(seq 2000 2025)
 
 MODIS_TILES=(
-"h07v06" 
-"h08v03"
+# "h07v06" 
+# "h08v03"
 # "h08v04"
 # "h08v05"
 # "h08v06"
 # "h08v07"
-"h09v02"
-"h09v03" 
+# "h09v02"
+# "h09v03" 
 # "h09v04" # US-NR1
 # "h09v05" # ecoregions related to US-NR1
 # "h09v06"
@@ -21,7 +21,7 @@ MODIS_TILES=(
 # "h09v08" 
 # "h10v02"
 # "h10v03"
-# "h10v04" # ecoregions related to US-NR1
+# "h10v04" # US-Ne3
 # "h10v05"
 # "h10v06" # OSBS
 # "h10v07"
@@ -30,13 +30,13 @@ MODIS_TILES=(
 # "h11v03" # Ca-Obs
 # "h11v04"
 # "h11v05"
-"h11v06"
+# "h11v06"
 # "h11v07"
-"h11v08"
+# "h11v08"
 # "h12v01"
 # "h12v02"
 # "h12v03"
-# "h12v04"
+# "h12v04" # US-UMB
 # "h12v05"
 # "h13v01"
 # "h13v02"
@@ -45,10 +45,10 @@ MODIS_TILES=(
 # "h14v01"
 # "h14v02"
 # "h14v03"
-"h14v04"
-# "h15v01"
-# "h15v02"
-# "h16v01"
+# "h14v04"
+"h15v01"
+"h15v02"
+"h16v01"
 )
 
 

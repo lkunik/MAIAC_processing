@@ -87,6 +87,11 @@ dat_pt_basedir_basicfill = os.path.join(dat_pt_basedir, f'CV-MVC/basic-fill/QCfi
 Photospec_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/data/PhotoSpec'
 Photospec_file = os.path.join(Photospec_dir, f'PhotoSpec_{site_name}.csv')
 
+# MCD19 mean overpass time at DEJU is 11:42 local mean solar time (LMST) = 12:25 AKST (PhotoSpec clock).
+# Select PhotoSpec times within +/- 1 hr of overpass, rounded to the nearest half hour: [start, end)
+overpass_window = ('11:30', '13:30')
+overpass_window_times = tuple(pd.Timestamp(t).time() for t in overpass_window)
+
 out_stats_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/output/CVMVC_QC_regression_stats/'
 os.makedirs(out_stats_dir, exist_ok=True)
 
@@ -288,10 +293,12 @@ MCD19_lmfill_times = np.array([np.datetime64(t) for t in MCD19_lmfill_pt['time']
 MCD19_basicfill_times = np.array([np.datetime64(t) for t in MCD19_basicfill_pt['time'].values])
 
 
-# Filter Photospec_df for times between 13:00 and 14:00
-mask = (Photospec_times.dt.hour >= 13) & (Photospec_times.dt.hour < 14)
-Photospec_df_filtered = Photospec_df[mask].reset_index(drop=True)
-Photospec_times_filtered = Photospec_times[mask].reset_index(drop=True)
+# Filter Photospec_df for MCD19 overpass time +/- 1 hr (see overpass_window)
+mask = Photospec_times.dt.time.between(*overpass_window_times, inclusive='left')
+# Average the overpass-window PhotoSpec obs to daily means (~4 obs/day; 2 for hourly US-NR1)
+Photospec_df_filtered = Photospec_df[mask].assign(Time=Photospec_times[mask].dt.normalize())
+Photospec_df_filtered = Photospec_df_filtered.groupby('Time', as_index=False).mean(numeric_only=True)
+Photospec_times_filtered = Photospec_df_filtered['Time']
 
 # Set x-axis to month abbreviations at the start of each month
 months = np.arange(1, 13)

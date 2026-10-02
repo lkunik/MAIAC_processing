@@ -86,6 +86,12 @@ FloX_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/data/FloX/
 FloX_2018_file = os.path.join(FloX_dir, f'DFlox_SIF_VIs_2018.csv')
 FloX_2019_file = os.path.join(FloX_dir, f'DFlox_SIF_VIs_2019.csv')
 
+# MCD19 mean overpass time at US-Ne3 is 12:04 local mean solar time (LMST). FloX DateTime is UTC, so
+# convert to LMST (UTC + lon/15) before selecting FloX times within +/- 1 hr of overpass
+FloX_utc_to_LMST = pd.Timedelta(hours=-96.4397 / 15)
+overpass_window = ('11:04', '13:04')
+overpass_window_times = tuple(pd.Timestamp(t).time() for t in overpass_window)
+
 MOD13_dir = os.path.join(dat_pt_basedir, 'MOD13')
 MOD13_file = os.path.join(MOD13_dir, f'MOD13_pt_{site_name}.nc')
 MCD43_dir = os.path.join(dat_pt_basedir, 'MCD43')
@@ -244,7 +250,7 @@ def main():
     FloX_df_2018['DateTime'] = pd.to_datetime(FloX_df_2018['DateTime'])
     FloX_df_2018 = FloX_df_2018[FloX_df_2018['DateTime'].between('2018-01-01', '2018-12-31')]
     FloX_df_2018 = FloX_df_2018[
-        FloX_df_2018['DateTime'].dt.time.between(pd.Timestamp('13:00').time(), pd.Timestamp('14:00').time())
+        (FloX_df_2018['DateTime'] + FloX_utc_to_LMST).dt.time.between(*overpass_window_times)
     ]
 
     FloX_df_2018 = FloX_df_2018[FloX_df_2018['NDVI'].between(0, 1)]
@@ -262,7 +268,7 @@ def main():
     FloX_df_2019['DateTime'] = pd.to_datetime(FloX_df_2019['DateTime'])
     FloX_df_2019 = FloX_df_2019[FloX_df_2019['DateTime'].between('2019-01-01', '2019-12-31')]
     FloX_df_2019 = FloX_df_2019[
-        FloX_df_2019['DateTime'].dt.time.between(pd.Timestamp('13:00').time(), pd.Timestamp('14:00').time())
+        (FloX_df_2019['DateTime'] + FloX_utc_to_LMST).dt.time.between(*overpass_window_times)
     ]
     FloX_df_2019 = FloX_df_2019[FloX_df_2019['NDVI'].between(0, 1)]
     FloX_df_2019 = remove_running_window_outliers(FloX_df_2019)
@@ -967,7 +973,7 @@ def main():
                 continue
             fig, ax = plt.subplots(figsize=(7, 3))
             ax.scatter(FloX_doy, FloX_df_filtered[var], color='gray', s=14, alpha=0.5,
-                    label='FloX daily mean, 13-14h')
+                    label=f'FloX daily mean, {overpass_window[0]}-{overpass_window[1]} LMST')
             ax.scatter(pair.index.dayofyear, pair['flox'], color='black', s=28,
                     marker='^', label='FloX interp')
             ax.scatter(pair.index.dayofyear, pair['product'], color='red', s=28,

@@ -223,6 +223,7 @@ def main():
 
         # Load in file to establish regridder
         dat_ds_1km_curv = xr.open_dataset(MCD19A1_file)
+        dat_ds_1km_curv = dat_ds_1km_curv.drop_vars(['orbit_time_utc', 'orbit_local_solar_time'], errors='ignore')  # optional per-pixel orbit time diagnostic from step 01, not regridded
 
         # Sample 0.01° 1D Rectilinear file for North America
         ESA_CCI_file = os.path.join(ESA_CCI_dir, 'forest_fraction_0.01deg_north_america_FULL.nc')

@@ -311,6 +311,7 @@ def main():
                 dat_ds = xr.open_dataset(file)
                 if 'QA_flag' in dat_ds:
                     dat_ds = dat_ds.drop_vars(['QA_flag'])  # categorical flag, not meaningful to average
+                dat_ds = dat_ds.drop_vars(['orbit_time_utc', 'orbit_local_solar_time'], errors='ignore')  # optional per-pixel orbit time diagnostic from step 01, not meaningful to average
                 
                 # Load and regrid burn area mask to this file's grid
                 burn_portion_file = os.path.join(fire_dir, f'MCD64A1.061_01d_reproc_10yrsum_{str(yyyy)}.nc')

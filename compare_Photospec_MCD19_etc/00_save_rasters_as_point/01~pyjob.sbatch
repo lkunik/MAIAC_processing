@@ -57,10 +57,10 @@ PRINT_EXIT_STATUS_TO_FILE () {
 }
 
 # Script to run
-# export EXECUTION_SCRIPT="${WORKINGDIR}/01a_save_MCD19_QCoptions_PhotoSpec_sites_backup_prefill.py"
+export EXECUTION_SCRIPT="${WORKINGDIR}/01a_save_MCD19_QCoptions_PhotoSpec_sites_backup_prefill.py"
 # export EXECUTION_SCRIPT="${WORKINGDIR}/01b_save_MCD19_QCoptions_PhotoSpec_sites_backup_VZAX-X.py"
 # export EXECUTION_SCRIPT="${WORKINGDIR}/01c_save_MCD19_QCoptions_PhotoSpec_sites_backup_OutlierFilter.py"
-export EXECUTION_SCRIPT="${WORKINGDIR}/01d_save_MCD19_QCoptions_PhotoSpec_sites_backup_lmfill.py"
+# export EXECUTION_SCRIPT="${WORKINGDIR}/01d_save_MCD19_QCoptions_PhotoSpec_sites_backup_lmfill.py"
 # export EXECUTION_SCRIPT="${WORKINGDIR}/01e_save_MCD19_avg_seasonality_PhotoSpec_sites_backup.py"
 # export EXECUTION_SCRIPT="${WORKINGDIR}/01f_save_MCD19_QCoptions_PhotoSpec_sites_backup_basicfill.py"
 # export EXECUTION_SCRIPT="${WORKINGDIR}/01g_save_MCD19_avg_seasonality_OutlierFilter_PhotoSpec_sites_backup.py"

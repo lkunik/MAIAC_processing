@@ -88,6 +88,12 @@ FloX_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/data/FloX/
 FloX_2018_file = os.path.join(FloX_dir, f'DFlox_SIF_VIs_2018.csv')
 FloX_2019_file = os.path.join(FloX_dir, f'DFlox_SIF_VIs_2019.csv')
 
+# MCD19 mean overpass time at US-Ne3 is 12:04 local mean solar time (LMST). FloX DateTime is UTC, so
+# convert to LMST (UTC + lon/15) before selecting FloX times within +/- 1 hr of overpass
+FloX_utc_to_LMST = pd.Timedelta(hours=-96.4397 / 15)
+overpass_window = ('11:04', '13:04')
+overpass_window_times = tuple(pd.Timestamp(t).time() for t in overpass_window)
+
 
 out_stats_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/output/CVMVC_QC_regression_stats/'
 os.makedirs(out_stats_dir, exist_ok=True)
@@ -269,7 +275,7 @@ def main():
     FloX_df_2018['DateTime'] = pd.to_datetime(FloX_df_2018['DateTime'], format='%m/%d/%y %H:%M')
     FloX_df_2018 = FloX_df_2018[FloX_df_2018['DateTime'].between('2018-01-01', '2018-12-31')]
     FloX_df_2018 = FloX_df_2018[
-        FloX_df_2018['DateTime'].dt.time.between(pd.Timestamp('13:00').time(), pd.Timestamp('14:00').time())
+        (FloX_df_2018['DateTime'] + FloX_utc_to_LMST).dt.time.between(*overpass_window_times)
     ]
 
     FloX_df_2018 = FloX_df_2018[FloX_df_2018['NDVI'].between(0, 1)]
@@ -287,7 +293,7 @@ def main():
     FloX_df_2019['DateTime'] = pd.to_datetime(FloX_df_2019['DateTime'], format='%m/%d/%y %H:%M')
     FloX_df_2019 = FloX_df_2019[FloX_df_2019['DateTime'].between('2019-01-01', '2019-12-31')]
     FloX_df_2019 = FloX_df_2019[
-        FloX_df_2019['DateTime'].dt.time.between(pd.Timestamp('13:00').time(), pd.Timestamp('14:00').time())
+        (FloX_df_2019['DateTime'] + FloX_utc_to_LMST).dt.time.between(*overpass_window_times)
     ]
     FloX_df_2019 = FloX_df_2019[FloX_df_2019['NDVI'].between(0, 1)]
     FloX_df_2019 = remove_running_window_outliers(FloX_df_2019)
@@ -662,6 +668,96 @@ def main():
         histavg_panel_file = os.path.join(panel_dir, f'{site_name}_{var_name}_HistAvgCompare_panel.png')
         plt.savefig(histavg_panel_file, dpi=300, bbox_inches='tight')
         # plt.show()
+
+
+    #%%
+    #~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#
+    #~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#
+
+    ### Calculate fit params - outlier-filtered and basic-fill MCD19 vs FloX
+    ### (same statistics as the QC-compare scripts in 01_QC_compare/)
+
+    #~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#
+    #~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#
+
+    # Interpolate FloX values to MCD19 times, but do not bridge long gaps
+    # in the source observations.  A gap longer than one composite period is
+    # treated as missing rather than being filled by np.interp.
+    # (same as 01_QC_compare/01*.py for this site)
+    def interp_to_mcd19(source_values, target_times, max_gap_days=16):
+        source_times = pd.to_datetime(FloX_times_filtered)
+        target_times = pd.to_datetime(target_times)
+        source_values = np.asarray(source_values, dtype=float)
+        valid = np.isfinite(source_values)
+
+        source_time_ns = source_times.astype(np.int64).to_numpy()
+        target_time_ns = target_times.astype(np.int64).to_numpy()
+        valid_times = source_time_ns[valid]
+        valid_values = source_values[valid]
+
+        result = np.interp(target_time_ns, valid_times, valid_values).astype(float)
+        result[(target_times < source_times.iloc[0]) |
+               (target_times > source_times.iloc[-1])] = np.nan
+
+        # Mask intervals between valid observations when the intervening source
+        # gap (including its endpoints) is longer than the allowed duration.
+        max_gap = pd.Timedelta(days=max_gap_days).value
+        valid_indices = np.flatnonzero(valid)
+        for left, right in zip(valid_indices[:-1], valid_indices[1:]):
+            if source_time_ns[right] - source_time_ns[left] > max_gap:
+                result[(target_time_ns > source_time_ns[left]) &
+                       (target_time_ns < source_time_ns[right])] = np.nan
+
+        return pd.Series(result, index=target_times)
+
+
+    # (output subdirectory, file descriptor, MCD19 dataset)
+    fit_datasets = [
+        ('outlier_removal', 'OutlierFilter', MCD19_prefill_OutlierFilter_pt),
+        ('basic-fill', 'basic-fill', MCD19_basicfill_pt),
+        ('lm-fill', 'lm-fill', MCD19_lmfill_pt),
+    ]
+
+    for out_subdir, fill_descr, MCD19_pt in fit_datasets:
+
+        # Blank table for fit statistics by element (QC4 matches the QC_descr label in the QC-compare tables)
+        fit_stats_df = pd.DataFrame(
+            index=pd.MultiIndex.from_tuples(
+                [
+                    ('QC4', QC_descr, 'CCI'),
+                    ('QC4', QC_descr, 'NDVI'),
+                ],
+                names=['QC', 'QC_descr', 'element'],
+            ),
+            columns=['R2', 'bias', 'CRMSE', 'Spearman_r', 'Spearman_pval'],
+            dtype=float,
+        )
+
+        for element in ['CCI', 'NDVI']:
+            tower_interp = interp_to_mcd19(FloX_df_filtered[element].values, MCD19_pt.time.values)
+
+            # Only compare where both are valid (not nan)
+            valid_mask = (~np.isnan(MCD19_pt[element].values)) & (~np.isnan(tower_interp.values))
+            if np.sum(valid_mask) > 1:
+                x = tower_interp.values[valid_mask]
+                y = MCD19_pt[element].values[valid_mask]
+                slope, intercept, r_value, p_value, std_err = linregress(x, y)
+                # Spearman rank correlation
+                spear_r, spear_p = spearmanr(x, y)
+
+                # Centered (unbiased) RMSE (CRMSE): removes mean bias
+                crmse = np.sqrt(np.nanmean(((y - np.nanmean(y)) - (x - np.nanmean(x)))**2))
+                bias = np.nanmean(y) - np.nanmean(x)
+
+                fit_stats_df.loc[('QC4', QC_descr, element), :] = [r_value**2, bias, crmse, spear_r, spear_p]
+                print(f"MCD19 {fill_descr} vs FloX {element} Fit parameters (interp): R^2={r_value**2:.3f}, bias={bias:.3f}, CRMSE={crmse:.3f}, Spearman r={spear_r:.3f}, p-value={spear_p:.3e}")
+            else:
+                print(f"Not enough valid data for {fill_descr} {element} regression (interp).")
+
+        fit_stats_out_dir = os.path.join(out_stats_dir, out_subdir)
+        os.makedirs(fit_stats_out_dir, exist_ok=True)
+        fit_stats_outfile = os.path.join(fit_stats_out_dir, f'MCD19_v_FloX_fit_stats_{fill_descr}_{site_name}.csv')
+        fit_stats_df.to_csv(fit_stats_outfile)
 
 
 if __name__ == "__main__":

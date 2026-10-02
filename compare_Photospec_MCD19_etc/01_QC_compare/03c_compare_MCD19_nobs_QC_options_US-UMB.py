@@ -106,6 +106,14 @@ Photospec_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/data/
 Photospec_2018_file = os.path.join(Photospec_dir, 'PhotoSpecM1_2018_v20260903.nc')
 Photospec_2019_file = os.path.join(Photospec_dir, 'PhotoSpecM1_2019_v20260903.nc')
 
+# MCD19 mean overpass time at US-UMB is 12:21 local mean solar time (LMST) = 13:00 EST (PhotoSpec clock).
+# PhotoSpec data are 90-min averages (Hour_of_Day = interval start); HOD index 8 (12:00-13:30 EST)
+# is the period that best matches overpass +/- 1 hr
+Photospec_HOD_idx = 8
+Photospec_HOD_start = pd.Timedelta(hours=12)
+overpass_window = ('12:00', '13:30')
+overpass_window_times = tuple(pd.Timestamp(t).time() for t in overpass_window)
+
 out_stats_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/output/CVMVC_QC_regression_stats/'
 os.makedirs(out_stats_dir, exist_ok=True)
 
@@ -240,21 +248,21 @@ def main():
 
 
     # Format Photospec data into a single DataFrame with datetime index (like other PS datasets)
-    Photospec_df_2018 = Photospec_xr_2018.sel(HOD=9).to_dataframe().reset_index()
+    Photospec_df_2018 = Photospec_xr_2018.sel(HOD=Photospec_HOD_idx).to_dataframe().reset_index()
 
     Photospec_df_2018['Time'] = (
         pd.Timestamp('2018-01-01')
         + pd.to_timedelta(Photospec_df_2018['DOY'].astype(int), unit='D')
-        + pd.Timedelta(hours=13, minutes=30)
+        + Photospec_HOD_start
     )
 
 
-    Photospec_df_2019 = Photospec_xr_2019.sel(HOD=9).to_dataframe().reset_index()
+    Photospec_df_2019 = Photospec_xr_2019.sel(HOD=Photospec_HOD_idx).to_dataframe().reset_index()
 
     Photospec_df_2019['Time'] = (
         pd.Timestamp('2019-01-01')
         + pd.to_timedelta(Photospec_df_2019['DOY'].astype(int), unit='D')
-        + pd.Timedelta(hours=13, minutes=30)
+        + Photospec_HOD_start
     )
 
     Photospec_df = pd.concat([Photospec_df_2018, Photospec_df_2019], ignore_index=True)

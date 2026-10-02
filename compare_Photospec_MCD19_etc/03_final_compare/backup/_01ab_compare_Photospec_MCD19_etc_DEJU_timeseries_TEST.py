@@ -68,8 +68,8 @@ import cartopy.feature as cfeature
 
 
 #%%
-site_name = 'Ca-Obs'
-MODIS_tile = 'h11v03'
+site_name = 'DEJU'
+MODIS_tile = 'h11v02'
 
 QC_descr = "CloudFree_LowAOD_ClearAdj"
 
@@ -83,6 +83,11 @@ MCD19_QC_file = os.path.join(dat_pt_basedir_QC, f'MCD19_QCfilt_{QC_descr}_{site_
 
 Photospec_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/data/PhotoSpec'
 Photospec_file = os.path.join(Photospec_dir, f'PhotoSpec_{site_name}.csv')
+
+# MCD19 mean overpass time at DEJU is 11:42 local mean solar time (LMST) = 12:25 AKST (PhotoSpec clock).
+# Select PhotoSpec times within +/- 1 hr of overpass, rounded to the nearest half hour: [start, end)
+overpass_window = ('11:30', '13:30')
+overpass_window_times = tuple(pd.Timestamp(t).time() for t in overpass_window)
 
 MOD13_dir = os.path.join(dat_pt_basedir, 'MOD13')
 MOD13_file = os.path.join(MOD13_dir, f'MOD13_pt_{site_name}.nc')
@@ -251,8 +256,8 @@ MOD09_pt = xr.open_dataset(MOD09_file)
 Photospec_df = pd.read_csv(Photospec_file)
 print("Photospec_df columns:", Photospec_df.columns.tolist())
 
-# Remove any data from Photospec_df where NDVI is below 0.4
-Photospec_df = Photospec_df[Photospec_df['NDVI'] >= 0.4].reset_index(drop=True)
+# Remove any data from Photospec_df where NDVI is below 0.6
+# Photospec_df = Photospec_df[Photospec_df['NDVI'] >= 0.6].reset_index(drop=True)
 # Convert Photospec timestamps from "M/D/YY HH:MM" format to datetime64
 Photospec_times = pd.to_datetime(Photospec_df['Time'], format='%m/%d/%y %H:%M')
 
@@ -271,10 +276,12 @@ MCD43_times = np.array([np.datetime64(t) for t in MCD43_pt['time'].values])
 GCOM_times = np.array([np.datetime64(t) for t in GCOM_pt['time'].values])
 MOD09_times = np.array([np.datetime64(t) for t in MOD09_pt['time'].values])
 
-# Filter Photospec_df for times between 13:00 and 14:00
-mask = (Photospec_times.dt.hour >= 13) & (Photospec_times.dt.hour < 14)
-Photospec_df_filtered = Photospec_df[mask].reset_index(drop=True)
-Photospec_times_filtered = Photospec_times[mask].reset_index(drop=True)
+# Filter Photospec_df for MCD19 overpass time +/- 1 hr (see overpass_window)
+mask = Photospec_times.dt.time.between(*overpass_window_times, inclusive='left')
+# Average the overpass-window PhotoSpec obs to daily means (~4 obs/day; 2 for hourly US-NR1)
+Photospec_df_filtered = Photospec_df[mask].assign(Time=Photospec_times[mask].dt.normalize())
+Photospec_df_filtered = Photospec_df_filtered.groupby('Time', as_index=False).mean(numeric_only=True)
+Photospec_times_filtered = Photospec_df_filtered['Time']
 
 # Set x-axis to month abbreviations at the start of each month
 months = np.arange(1, 13)
@@ -300,11 +307,11 @@ MCD43_color = '#B5C230'
 
 # Plot shaded regions for winter periods
 winter_periods = [
-    (pd.Timestamp('2018-10-30'), pd.Timestamp('2019-04-25')),
-    (pd.Timestamp('2019-10-26'), pd.Timestamp('2020-05-05')),
-    (pd.Timestamp('2020-10-15'), pd.Timestamp('2021-04-20')),
-    (pd.Timestamp('2021-11-11'), pd.Timestamp('2022-05-10')),
-    (pd.Timestamp('2022-11-02'), pd.Timestamp('2023-04-30'))
+    # Ground snow cover periods
+    (pd.Timestamp('2018-10-28'), pd.Timestamp('2019-04-15')),
+    (pd.Timestamp('2019-10-02'), pd.Timestamp('2020-05-05')),
+    (pd.Timestamp('2020-10-13'), pd.Timestamp('2021-05-05')),
+    (pd.Timestamp('2021-09-20'), pd.Timestamp('2022-05-20'))
 ]
 
 # %%
@@ -343,11 +350,12 @@ ax.plot(MCD19_QC_times, MCD19_QC_pt['NDVI'].values, color=MCD19_QC_color, marker
 
 ax.set_ylim(mcd19_ndvi_min - (mcd19_ndvi_range*0.15), mcd19_ndvi_max + (mcd19_ndvi_range*0.05))
 ax.yaxis.set_major_formatter(FFmt(lambda y, _: f'{y:.1f}'))
-ax.yaxis.set_major_locator(MultipleLocator(0.1))
+ax.yaxis.set_major_locator(MultipleLocator(0.2))
 
 
 ax.set_xlim(Photospec_times_filtered.min() - pd.Timedelta(days=10), Photospec_times_filtered.max() + pd.Timedelta(days=10))
-ax.xaxis.set_major_locator(MonthLocator(bymonth=[1]))
+ax.xaxis.set_major_locator(MonthLocator(bymonth=[1, 7]))
+
 ax.xaxis.set_major_formatter(DateFormatter('%b\n%Y'))
 ax.set_title('')
 ax.set_ylabel('NDVI')
@@ -389,11 +397,11 @@ ax.plot(MCD19_QC_times, MCD19_QC_pt['NDVI'].values, color=MCD19_QC_color, marker
 
 ax.set_ylim(mcd19_ndvi_min - (mcd19_ndvi_range*0.15), mcd19_ndvi_max + (mcd19_ndvi_range*0.05))
 ax.yaxis.set_major_formatter(FFmt(lambda y, _: f'{y:.1f}'))
-ax.yaxis.set_major_locator(MultipleLocator(0.1))
+ax.yaxis.set_major_locator(MultipleLocator(0.2))
 
 
 ax.set_xlim(Photospec_times_filtered.min() - pd.Timedelta(days=10), Photospec_times_filtered.max() + pd.Timedelta(days=10))
-ax.xaxis.set_major_locator(MonthLocator(bymonth=[1]))
+ax.xaxis.set_major_locator(MonthLocator(bymonth=[1, 7]))
 ax.xaxis.set_major_formatter(DateFormatter('%b\n%Y'))
 ax.set_title('')
 ax.set_ylabel('NDVI')
@@ -445,7 +453,8 @@ plt.show()
 # ax2.yaxis.set_major_locator(MultipleLocator(0.1))
 
 # ax.set_xlim(Photospec_times_filtered.min() - pd.Timedelta(days=10), Photospec_times_filtered.max() + pd.Timedelta(days=10))
-# ax.xaxis.set_major_locator(MonthLocator(bymonth=[1]))
+# ax.xaxis.set_major_locator(MonthLocator(bymonth=[1, 7]))
+
 # ax.xaxis.set_major_formatter(DateFormatter('%b\n%Y'))
 # ax.set_title('')
 # ax.set_ylabel('NDVI')
@@ -485,7 +494,7 @@ ax.yaxis.set_major_formatter(FFmt(lambda y, _: f'{y:.1f}'))
 ax.yaxis.set_major_locator(MultipleLocator(0.1))
 ax.yaxis.set_major_locator(MultipleLocator(0.1))
 ax.set_xlim(Photospec_times_filtered.min() - pd.Timedelta(days=10), Photospec_times_filtered.max() + pd.Timedelta(days=10))
-ax.xaxis.set_major_locator(MonthLocator(bymonth=[1]))
+ax.xaxis.set_major_locator(MonthLocator(bymonth=[1, 7]))
 ax.xaxis.set_major_formatter(DateFormatter('%b\n%Y'))
 ax.set_title('')
 ax.set_ylabel('CCI')
@@ -535,7 +544,7 @@ ax2.yaxis.set_major_formatter(FFmt(lambda y, _: f'{y:.1f}'))
 ax.yaxis.set_major_locator(MultipleLocator(0.1))
 ax2.yaxis.set_major_locator(MultipleLocator(0.1))
 ax.set_xlim(Photospec_times_filtered.min() - pd.Timedelta(days=10), Photospec_times_filtered.max() + pd.Timedelta(days=10))
-ax.xaxis.set_major_locator(MonthLocator(bymonth=[1]))
+ax.xaxis.set_major_locator(MonthLocator(bymonth=[1, 7]))
 ax.xaxis.set_major_formatter(DateFormatter('%b\n%Y'))
 ax.set_title('')
 ax.set_ylabel('CCI')
@@ -699,8 +708,22 @@ plt.show()
 # # Check that the interpolated MOD09 series is aligned with photospec_cci_interp.
 # mod09_interp_times = pd.DatetimeIndex(pd.to_datetime(MOD09_interp.time.values))
 # photospec_cci_interp_times = pd.DatetimeIndex(pd.to_datetime(photospec_cci_interp.index))
+
+
 # if not mod09_interp_times.equals(photospec_cci_interp_times):
-#     raise ValueError("MOD09_interp and photospec_cci_interp timestamps do not match")
+#     MOD09_interp = MOD09_pt.sel(time=slice(photospec_cci_interp.index[0], photospec_cci_interp.index[-1]+pd.Timedelta(days=16)))
+#     # Check that the interpolated MOD09 series is aligned with photospec_cci_interp.
+#     mod09_interp_times = pd.DatetimeIndex(pd.to_datetime(MOD09_interp.time.values))
+    
+
+#     # Keep only MOD09 timesteps that are also present in the PhotoSpec series.
+#     matching_mod09_times = mod09_interp_times[mod09_interp_times.isin(photospec_cci_interp_times)]
+#     MOD09_interp = MOD09_interp.sel(time=matching_mod09_times.values)
+#     mod09_interp_times = pd.DatetimeIndex(pd.to_datetime(MOD09_interp.time.values))
+
+#     # Check if values still are not aligned
+#     if not mod09_interp_times.equals(photospec_cci_interp_times):
+#         raise ValueError("MOD09_interp and photospec_cci_interp timestamps do not match")
 # print(f"MOD09_interp timestamps match photospec_cci_interp ({len(MOD09_interp.time)} timestamps)")
 
 # # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -959,8 +982,8 @@ plt.show()
 #     crmse = np.sqrt(np.nanmean(((y - np.nanmean(y)) - (x - np.nanmean(x)))**2))
 #     bias = np.nanmean(y) - np.nanmean(x)
 #     ndvi_fit_stats = [r_value**2, spear_r, crmse, bias]
-
 #     fit_stats_df.loc[('GCOM', 'NDVI'), :] = [r_value**2, bias, crmse, spear_r, spear_p]
+
 #     print(f"GCOM vs PhotoSpec NDVI Fit parameters (interp): R^2={r_value**2:.3f}, bias={bias:.3f}, CRMSE={crmse:.3f}, Spearman r={spear_r:.3f}, p-value={spear_p:.3e}")
 # else:
 #     print("Not enough valid data for regression (interp).")
@@ -1047,10 +1070,10 @@ plt.show()
 ### Replaces everything from "### Calculate fit params" to the end of the script.
 #~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#~#
 
-# Max allowed distance (days) between a product timestamp and the nearest valid
-# PhotoSpec observation. None = no limit (matches the old behavior, where np.interp
-# draws a straight line across multi-month winter gaps). ~16 is a reasonable value.
-MAX_GAP_DAYS = None
+# Longest gap (days) between consecutive valid PhotoSpec observations that interpolation
+# is allowed to bridge. Product timestamps falling inside a longer gap are set to NaN.
+# 16 matches the rule in the 01_QC_compare and 02_gapfill_compare scripts. None = no limit.
+MAX_GAP_DAYS = 16
 
 # Minimum number of paired timesteps required to compute stats
 MIN_N = 3
@@ -1069,7 +1092,8 @@ def interp_photospec_to_times(target_times, ps_times, ps_vals, max_gap_days=None
     Linearly interpolate PhotoSpec values onto target_times.
     - NaN PhotoSpec values are dropped before interpolating (np.interp does not skip NaNs)
     - Targets outside the PhotoSpec time range are set to NaN
-    - Optionally, targets farther than max_gap_days from any valid PhotoSpec obs are set to NaN
+    - Optionally, targets that fall strictly inside a gap between consecutive valid PhotoSpec
+      observations longer than max_gap_days are set to NaN
     """
     xt = to_ns_int(target_times)
     x = to_ns_int(ps_times)
@@ -1090,11 +1114,14 @@ def interp_photospec_to_times(target_times, ps_times, ps_vals, max_gap_days=None
     out[(xt < x[0]) | (xt > x[-1])] = np.nan
 
     if max_gap_days is not None:
-        idx = np.searchsorted(x, xt)
-        left = np.clip(idx - 1, 0, x.size - 1)
-        right = np.clip(idx, 0, x.size - 1)
-        dist = np.minimum(np.abs(xt - x[left]), np.abs(x[right] - xt))
-        out[dist > pd.Timedelta(days=max_gap_days).value] = np.nan
+        long_gap = np.diff(x) > pd.Timedelta(days=max_gap_days).value  # gap after obs i
+        left = np.searchsorted(x, xt, side='right') - 1                # left neighbor index
+        in_interval = (left >= 0) & (left < x.size - 1)
+        exact_hit = np.zeros(xt.shape, dtype=bool)
+        exact_hit[left >= 0] = x[left[left >= 0]] == xt[left >= 0]
+        bad = np.zeros(xt.shape, dtype=bool)
+        bad[in_interval] = long_gap[left[in_interval]]
+        out[bad & ~exact_hit] = np.nan
 
     return out
 
@@ -1180,7 +1207,7 @@ if PLOT_SANITY:
             continue
         fig, ax = plt.subplots(figsize=(7, 3))
         ax.scatter(Photospec_times_filtered.dt.dayofyear, Photospec_df_filtered[var],
-                   color='gray', s=14, alpha=0.5, label='PhotoSpec daily, 13-14h')
+                   color='gray', s=14, alpha=0.5, label=f'PhotoSpec daily, {overpass_window[0]}-{overpass_window[1]}')
         ax.scatter(pair.index.dayofyear, pair['photospec'], color='black', s=28,
                    marker='^', label='PhotoSpec interp')
         ax.scatter(pair.index.dayofyear, pair['product'], color='red', s=28,

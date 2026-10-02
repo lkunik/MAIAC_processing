@@ -55,6 +55,11 @@ MCD19_QC_file = os.path.join(dat_pt_basedir_QC, f'MCD19_QCfilt_{QC_descr}_{site_
 Photospec_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/data/PhotoSpec'
 Photospec_file = os.path.join(Photospec_dir, f'PhotoSpec_{site_name}.csv')
 
+# MCD19 mean overpass time at DEJU is 11:42 local mean solar time (LMST) = 12:25 AKST (PhotoSpec clock).
+# Select PhotoSpec times within +/- 1 hr of overpass, rounded to the nearest half hour: [start, end)
+overpass_window = ('11:30', '13:30')
+overpass_window_times = tuple(pd.Timestamp(t).time() for t in overpass_window)
+
 plot_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/plots/CVMVC_QC_regression_stats/final/'
 panel_dir = os.path.join(plot_dir, 'panels')
 os.makedirs(panel_dir, exist_ok=True)
@@ -75,12 +80,12 @@ REFL_SCALE = 1.0
 #########################################
 
 def load_reference_times():
-    """Return (all times, 13-14h times) of the ground-based record."""
+    """Return (all times, overpass-window times) of the ground-based record."""
     df = pd.read_csv(Photospec_file)
     if NDVI_MIN is not None:
         df = df[df['NDVI'] >= NDVI_MIN].reset_index(drop=True)
     times = pd.to_datetime(df['Time'], format='%m/%d/%y %H:%M')
-    mask = (times.dt.hour >= 13) & (times.dt.hour < 14)
+    mask = times.dt.time.between(*overpass_window_times, inclusive='left')
     return times, times[mask].reset_index(drop=True)
 
 
