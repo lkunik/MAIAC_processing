@@ -234,7 +234,6 @@ def main():
         # print(ecoregion_l2_gdf['NA_L2NAME'].unique())
         ecoregions_gdf_this_eco = ecoregions_gdf[ecoregions_gdf.NA_L1NAME == ecoregion]
         ecoregion_gdf = ecoregions_gdf_this_eco[ecoregions_gdf_this_eco['Shape_Area'] > 1e+9] # filter out small areas
-        tiles_to_process = ecoregions_l1_tiles_list[ecoregion]
     elif ecoregion == 'Boreal':
         ecoregions_gdf = ecoregions_boreal_gdf[ecoregions_boreal_gdf['Shape_Area'] > 1e+9]
         ecoregion_gdf = dissolve_ecoregion_shapefile(ecoregions_gdf)
@@ -244,7 +243,7 @@ def main():
     elif ecoregion == 'Western':
         ecoregions_gdf = ecoregions_WUS_gdf[ecoregions_WUS_gdf['Shape_Area'] > 1e+9]
         ecoregion_gdf = dissolve_ecoregion_shapefile(ecoregions_gdf)
-    elif ecoregion == 'Southwest_US_Mexico':
+    elif ecoregion == 'Southwest US Mexico':
         ecoregions_gdf = ecoregions_US_Mex_gdf[ecoregions_US_Mex_gdf['Shape_Area'] > 1e+9]
         ecoregion_gdf = dissolve_ecoregion_shapefile(ecoregions_gdf)
 

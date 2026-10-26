@@ -58,7 +58,7 @@ from matplotlib import pyplot as plt  # primary plotting module
 mask_LC_high = True
 mask_LC_low = False
 
-pixel_presence_threshold = 15  # threshold for % of possible pixels that must be present in a composite period to include it in the analysis
+pixel_presence_threshold = 50  # threshold for % of possible pixels that must be present in a composite period to include it in the analysis
 
 # directories
 

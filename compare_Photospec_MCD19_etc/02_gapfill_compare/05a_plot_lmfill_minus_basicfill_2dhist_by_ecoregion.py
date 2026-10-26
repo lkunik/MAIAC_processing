@@ -6,6 +6,8 @@
 #
 # Heatmaps of lm-fill minus basic-fill (y) by time of year (x) at gap-filled pixels, per ecoregion,
 # with the median per composite period. One multi-panel figure per index (CCI, NDVI).
+# Also stacked bar charts per ecoregion of the mean annual number of pixels per composite period with a valid value
+# before gap-filling (gray) and added by gap-filling (dark red). One multi-panel figure per index.
 # Reads the .npz summaries from 05_calc_2dhist_lmfill_minus_basicfill_by_ecoregion_batch.py.
 # Same layout as 03a_plot_diff_from_median_2dhist_by_ecoregion.py.
 #
@@ -160,3 +162,44 @@ for i_idx, idx in enumerate(indices):
     fig.suptitle(f'{idx} lm-fill minus basic-fill at gap-filled pixels (colorbars: pixels per year)')
     fig.subplots_adjust(left=0.08, right=0.92, bottom=0.05, top=0.93, wspace=0.35, hspace=0.35)
     plt.show()
+
+#%%
+# stacked bars: mean annual number of valid pixels before gap-filling (gray) + pixels added by gap-filling (dark red)
+
+
+fig, axes = plt.subplots(3, 2, figsize=(14, 12))
+legend_handles = None
+
+for ecoregion, (row, col) in panel_layout.items():
+    ax = axes[row, col]
+    if (ecoregion not in dat_dict) or ('n_prefill_valid' not in dat_dict[ecoregion]):
+        ax.set_title(ecoregion_titles[ecoregion])
+        ax.text(0.5, 0.5, 'no data', ha='center', va='center', transform=ax.transAxes)
+        continue
+
+    dat = dat_dict[ecoregion]
+    n_years = len(dat['years'])
+    prefill = dat['n_prefill_valid'][0] / n_years   # (composite_period,): mean annual count
+    filled = dat['n_gapfilled'][0] / n_years
+    n_mask = dat['n_region_pixels_values'].sum()       # pixels in the ecoregion + LC mask (upper bound per period)
+
+    ax.bar(x_edges[:-1], prefill, width=np.diff(x_edges), align='edge',
+            color='0.6', edgecolor='white', linewidth=0.5, label='valid before gap-fill')
+    ax.bar(x_edges[:-1], filled, width=np.diff(x_edges), align='edge', bottom=prefill,
+            color='darkred', edgecolor='white', linewidth=0.5, label='added by gap-fill')
+    ax.axhline(n_mask, color='k', linewidth=0.8, linestyle='--', label='pixels in ecoregion + LC mask')
+    legend_handles = ax.get_legend_handles_labels()
+
+    ax.set_xticks(months_doy)
+    ax.set_xticklabels(months_labs)
+    ax.set_xlim(x_edges[0], x_edges[-1])
+    ax.set_ylim(0, n_mask * 1.05)
+    ax.ticklabel_format(axis='y', style='sci', scilimits=(0, 0))
+    ax.set_title(ecoregion_titles[ecoregion])
+
+fig.supylabel('mean annual number of pixels per composite period')
+fig.suptitle('valid pixels before gap-filling (gray) and added by gap-filling (dark red)')
+if legend_handles is not None:   # one legend for the figure, below the title
+    fig.legend(*legend_handles, loc='upper center', bbox_to_anchor=(0.5, 0.965), ncol=3, fontsize=11, frameon=False)
+fig.subplots_adjust(left=0.08, right=0.95, bottom=0.05, top=0.91, wspace=0.25, hspace=0.35)
+plt.show()

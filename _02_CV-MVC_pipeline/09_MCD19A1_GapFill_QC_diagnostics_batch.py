@@ -80,6 +80,10 @@ def open_squeezed(filename):
     ds = xr.open_dataset(filename)
     if 'time' in ds.dims:
         ds = ds.squeeze('time')
+    for var in ['NDVI_rank', 'VZA_rank']:
+        if var in ds:
+            ds = ds.drop_vars(var)
+    
     return ds
 
 
@@ -219,6 +223,7 @@ def main():
             period_ds = xr.Dataset(out_vars)
             if template_ds is None:
                 template_ds = period_ds
+
             period_ds_list.append(period_ds)
 
             for ds in [prefill_ds, lmfill_ds, basicfill_ds, hist_ds]:

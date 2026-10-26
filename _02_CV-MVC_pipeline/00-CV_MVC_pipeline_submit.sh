@@ -3,9 +3,9 @@
 BASEDIR="/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI"
 
 
-
+# COMPOSITES=$(seq 7 7)
 COMPOSITES=$(seq 0 22)
-# COMPOSITES=$(seq 3 3)
+
 
 MODIS_TILES=(
 # "h07v06" 
@@ -25,7 +25,7 @@ MODIS_TILES=(
 # "h10v03"
 # "h10v04" # US-Ne3
 # "h10v05"
-"h10v06" # OSBS
+# "h10v06" # OSBS
 # "h10v07"
 # "h10v08"
 # "h11v02" # DEJU
@@ -45,7 +45,7 @@ MODIS_TILES=(
 # "h13v03"
 # "h13v04" 
 # "h14v01"
-# "h14v02"
+"h14v02"
 # "h14v03"
 # "h14v04"
 # "h15v01"
@@ -61,7 +61,7 @@ VZA_MAX=90
 
 # Diagnostic: save per-pixel orbit UTC time + local solar time in the composites (step 01) for PhotoSpec comparisons.
 # 1 = on, 0 = off. Only turn on for the tiles you need; existing composites without it get reprocessed.
-SAVE_ORBIT_TIME=1
+SAVE_ORBIT_TIME=0
 
 
 # Compare AOD and adjacency masks:

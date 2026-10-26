@@ -7,8 +7,11 @@
 # For one ecoregion: accumulate fine-resolution histograms of lm-fill minus basic-fill (NDVI and CCI) at gap-filled
 # pixels (gapfill_{VI} == 1) for every composite period, pooled over all tiles/pixels in the ecoregion (with land
 # cover masking) and all years 2001-2024.
+# Also counts, per composite period, the pixels with a valid value before gap-filling (pre-fill_OutlierFilter) and the
+# pixels added by gap-filling (gapfill_{VI} == 1), for the bar charts of data availability.
 # Input: per-tile, per-year gap-fill diagnostics files (QC_gapfill, from 09_MCD19A1_GapFill_QC_diagnostics_batch.py) on the
-#        1 km sinusoidal grid; 2D lat/lon from the annual OutlierFilterQC files of the same tile
+#        1 km sinusoidal grid; per-tile, per-year, per-composite-period pre-fill_OutlierFilter files;
+#        2D lat/lon from the annual OutlierFilterQC files of the same tile
 # Output: one small .npz per ecoregion in summary_data, used by 05a_plot_lmfill_minus_basicfill_2dhist_by_ecoregion.py
 # Same structure as 03_calc_2dhist_diff_from_median_by_ecoregion_batch.py.
 #
@@ -206,6 +209,8 @@ def main():
 
     # per-tile, per-year gap-fill diagnostics files on the 1 km sinusoidal grid
     gapfill_basedir = os.path.join(base_dir, f'QC_gapfill/QCfilt_{QC_option}/')
+    # per-tile, per-year, per-composite-period VI after outlier filtering, before gap-filling
+    prefill_basedir = os.path.join(base_dir, f'pre-fill_OutlierFilter/QCfilt_{QC_option}/')
 
     print(f'Processing ecoregion: {ecoregion}...')
 
@@ -288,6 +293,11 @@ def main():
 
     # counts[index, composite_period, slot]: number of gap-filled pixel-years in each fine bin
     counts = np.zeros((len(indices), len(composite_periods), n_fine), dtype=np.int64)
+    # n_prefill_valid[index, composite_period]: pixel-years with a valid (finite) VI before gap-filling
+    # n_gapfilled[index, composite_period]: pixel-years added by gap-filling (gapfill_{VI} == 1)
+    n_prefill_valid = np.zeros((len(indices), len(composite_periods)), dtype=np.int64)
+    n_gapfilled = np.zeros((len(indices), len(composite_periods)), dtype=np.int64)
+    prefill_missing = []   # (tile, year, composite_period) with no pre-fill_OutlierFilter file
     tiles_used = []
     n_region_pixels = {}   # number of pixels in the ecoregion + LC mask, per tile
 
@@ -337,11 +347,28 @@ def main():
                     for i_cp in range(len(composite_periods)):
                         d = diff_vals[i_cp][region_mask]       # 1D: lm-fill minus basic-fill for pixels in the ecoregion + LC mask
                         fl = flag_vals[i_cp][region_mask]
+                        n_gapfilled[i_idx, i_cp] += int((fl == 1).sum())
                         ok = (fl == 1) & np.isfinite(d)        # gap-filled pixels only
                         slot = np.searchsorted(fine_edges, d[ok], side='right')   # 0 = underflow, len(fine_edges) = overflow
                         counts[i_idx, i_cp] += np.bincount(slot, minlength=n_fine)
                     del diff_vals, flag_vals
+
+            # valid values before gap-filling: one pre-fill_OutlierFilter file per composite period
+            for i_cp, cp in enumerate(composite_periods):
+                fp = os.path.join(prefill_basedir, MODIS_tile,
+                                  f'MCD19A1.{MODIS_tile}.061_1km_16day_CV-MVC_QCfilt_{QC_option}_OutlierFilter_{year}-{cp:02d}.nc')
+                if not os.path.exists(fp):
+                    prefill_missing.append((MODIS_tile, year, cp))
+                    continue
+                with xr.open_dataset(fp) as pds:
+                    for i_idx, idx in enumerate(indices):
+                        v = np.squeeze(pds[idx].values)   # (y, x)
+                        assert v.shape == region_mask.shape, f'pre-fill {idx}: grid {v.shape} does not match lat/lon {region_mask.shape}'
+                        n_prefill_valid[i_idx, i_cp] += int(np.isfinite(v[region_mask]).sum())
             gc.collect()
+
+    if len(prefill_missing) > 0:
+        print(f'  Missing {len(prefill_missing)} pre-fill_OutlierFilter files (tile, year, composite_period): {prefill_missing}')
 
 
     output_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/data/summary_data'
@@ -357,6 +384,9 @@ def main():
 
     np.savez(output_file,
              counts=counts,           # (index, composite_period, n_fine): gap-filled pixel-years per fine bin
+             n_prefill_valid=n_prefill_valid,   # (index, composite_period): pixel-years with a valid VI before gap-filling
+             n_gapfilled=n_gapfilled,           # (index, composite_period): pixel-years added by gap-filling
+             n_prefill_missing=len(prefill_missing),   # number of missing pre-fill_OutlierFilter (tile, year, period) files
              fine_edges=fine_edges,
              indices=np.array(indices),
              composite_periods=composite_periods,

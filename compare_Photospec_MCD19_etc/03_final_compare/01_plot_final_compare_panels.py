@@ -49,7 +49,10 @@ for imgs in rows:
 # Legend image saved by 01ab; drawn in a row spanning both columns at the same inches-per-pixel as the panels
 legend_img = mpimg.imread(os.path.join(panel_dir, 'final_compare_legend.png'))
 in_per_px = fig_width / max(sum(img.shape[1] for img in imgs) for imgs in rows)
-height_ratios.append(legend_img.shape[0] * in_per_px / fig_width)
+# Reserve additional height for the legend so it is displayed larger relative
+# to the panel images.
+legend_scale = 1.5
+height_ratios.append(legend_img.shape[0] * in_per_px / fig_width * legend_scale)
 
 fig = plt.figure(figsize=(fig_width, fig_width * sum(height_ratios)))
 gs = GridSpec(len(height_ratios), 2, figure=fig, height_ratios=height_ratios,
@@ -69,8 +72,10 @@ for r, imgs in enumerate(rows):
             ax.axis('off')
 
 ax_legend = fig.add_subplot(gs[-1, :])
-ax_legend.imshow(legend_img)
+ax_legend.imshow(legend_img, aspect='auto')
 ax_legend.set_anchor('C')
 ax_legend.axis('off')
 
-plt.show()
+# plt.show()
+plt.savefig(os.path.join(plot_dir, 'final_compare_panels.png'), dpi=300, bbox_inches='tight')
+plt.close()

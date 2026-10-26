@@ -32,49 +32,49 @@ import numpy as np
 # ALL TILES BELOW
 
 MODIS_tiles= [
-# "h07v06",
-# "h08v03",
-# "h08v04",
-# "h08v05",
-# "h08v06",
-# "h08v07",
-# "h09v02",
-# "h09v03", 
-# "h09v04", # US-NR1
-# "h09v05", # ecoregions related to US-NR1
-# "h09v06",
-# "h09v07",
-# "h09v08", 
-# "h10v02",
-# "h10v03",
-# "h10v04", # ecoregions related to US-NR1
-# "h10v05",
-# "h10v06", # OSBS
-# "h10v07",
-# "h10v08",
-# "h11v02", # DEJU
-# "h11v03", # Ca-Obs
-# "h11v04",
-# "h11v05",
-# "h11v06",
-# "h11v07",
-# "h11v08",
+"h07v06",
+"h08v03",
+"h08v04",
+"h08v05",
+"h08v06",
+"h08v07",
+"h09v02",
+"h09v03", 
+"h09v04", # US-NR1
+"h09v05", # ecoregions related to US-NR1
+"h09v06",
+"h09v07",
+"h09v08", 
+"h10v02",
+"h10v03",
+"h10v04", # ecoregions related to US-NR1
+"h10v05",
+"h10v06", # OSBS
+"h10v07",
+"h10v08",
+"h11v02", # DEJU
+"h11v03", # Ca-Obs
+"h11v04",
+"h11v05",
+"h11v06",
+"h11v07",
+"h11v08",
 "h12v01",
-# "h12v02",
-# "h12v03",
-# "h12v04",
-# "h12v05",
+"h12v02",
+"h12v03",
+"h12v04",
+"h12v05",
 "h13v01",
-# "h13v02",
-# "h13v03",
-# "h13v04", 
+"h13v02",
+"h13v03",
+"h13v04", 
 "h14v01",
-# "h14v02",
-# "h14v03",
-# "h14v04",
-# "h15v01",
-# "h15v02",
-# "h16v01",
+"h14v02",
+"h14v03",
+"h14v04",
+"h15v01",
+"h15v02",
+"h16v01",
 ]
 
 
@@ -183,7 +183,7 @@ for MODIS_tile in MODIS_tiles:
     for composite_nn in range(0, 23):
 
         # Skip processing if 'v01' is in MODIS_tile and composite_period is in [0, 1, 2, 19, 20, 21, 22]
-        if 'v01' in MODIS_tile and composite_nn in [0, 1, 2, 19, 20, 21, 22]:
+        if 'v01' in MODIS_tile and composite_nn in [0, 1, 2, 3, 19, 20, 21, 22]:
             continue
 
         # Skip processing if 'v02' is in MODIS_tile and composite_period is in [0, 1, 20, 21, 22]
@@ -294,7 +294,7 @@ for MODIS_tile in MODIS_tiles:
     for composite_nn in range(0, 23):
 
         # Skip processing if 'v01' is in MODIS_tile and composite_period is in [0, 1, 2, 19, 20, 21, 22]
-        if 'v01' in MODIS_tile and composite_nn in [0, 1, 2, 19, 20, 21, 22]:
+        if 'v01' in MODIS_tile and composite_nn in [0, 1, 2, 3, 19, 20, 21, 22]:
             continue
 
         # Skip processing if 'v02' is in MODIS_tile and composite_period is in [0, 1, 20, 21, 22]
@@ -415,7 +415,7 @@ for MODIS_tile in MODIS_tiles:
 
 
         # Skip processing if 'v01' is in MODIS_tile and composite_period is in [0, 1, 2, 19, 20, 21, 22]
-        if 'v01' in MODIS_tile and composite_nn in [0, 1, 2, 19, 20, 21, 22]:
+        if 'v01' in MODIS_tile and composite_nn in [0, 1, 2, 3, 19, 20, 21, 22]:
             continue
 
         # Skip processing if 'v02' is in MODIS_tile and composite_period is in [0, 1, 20, 21, 22]
@@ -476,7 +476,7 @@ for MODIS_tile in MODIS_tiles:
                 continue
 
             # Skip processing if 'v01' is in MODIS_tile and composite_period is in [0, 1, 2, 19, 20, 21, 22]
-            if 'v01' in MODIS_tile and composite_nn in [0, 1, 2, 19, 20, 21, 22]:
+            if 'v01' in MODIS_tile and composite_nn in [0, 1, 2, 3, 19, 20, 21, 22]:
                 continue
 
             # Skip processing if 'v02' is in MODIS_tile and composite_period is in [0, 1, 20, 21, 22]
@@ -603,7 +603,7 @@ for MODIS_tile in MODIS_tiles:
                 continue
 
             # Skip processing if 'v01' is in MODIS_tile and composite_period is in [0, 1, 2, 19, 20, 21, 22]
-            if 'v01' in MODIS_tile and composite_nn in [0, 1, 2, 19, 20, 21, 22]:
+            if 'v01' in MODIS_tile and composite_nn in [0, 1, 2,3, 19, 20, 21, 22]:
                 continue
 
             # Skip processing if 'v02' is in MODIS_tile and composite_period is in [0, 1, 20, 21, 22]
@@ -652,7 +652,7 @@ for MODIS_tile in MODIS_tiles:
     for composite_nn in range(0, 23):
 
         # Skip processing if 'v01' is in MODIS_tile and composite_period is in [0, 1, 2, 19, 20, 21, 22]
-        if 'v01' in MODIS_tile and composite_nn in [0, 1, 2, 19, 20, 21, 22]:
+        if 'v01' in MODIS_tile and composite_nn in [0, 1, 2,3, 19, 20, 21, 22]:
             continue
 
         # Skip processing if 'v02' is in MODIS_tile and composite_period is in [0, 1, 20, 21, 22]
@@ -699,7 +699,7 @@ for MODIS_tile in MODIS_tiles:
     for composite_nn in range(0, 23):
 
         # Skip processing if 'v01' is in MODIS_tile and composite_period is in [0, 1, 2, 19, 20, 21, 22]
-        if 'v01' in MODIS_tile and composite_nn in [0, 1, 2, 19, 20, 21, 22]:
+        if 'v01' in MODIS_tile and composite_nn in [0, 1, 2, 3, 19, 20, 21, 22]:
             continue
 
         # Skip processing if 'v02' is in MODIS_tile and composite_period is in [0, 1, 20, 21, 22]
@@ -787,7 +787,7 @@ print(f'              Tiles with missing 0.01° regridded historical average fil
 #                 continue
 
 #             # Skip processing if 'v01' is in MODIS_tile and composite_period is in [0, 1, 2, 19, 20, 21, 22]
-#             if 'v01' in MODIS_tile and composite_nn in [0, 1, 2, 19, 20, 21, 22]:
+#             if 'v01' in MODIS_tile and composite_nn in [0, 1, 2, 3, 19, 20, 21, 22]:
 #                 continue
 
 #             # Skip processing if 'v02' is in MODIS_tile and composite_period is in [0, 1, 20, 21, 22]
@@ -839,7 +839,7 @@ print(f'              Tiles with missing 0.01° regridded historical average fil
 #                 continue
 
 #             # Skip processing if 'v01' is in MODIS_tile and composite_period is in [0, 1, 2, 19, 20, 21, 22]
-#             if 'v01' in MODIS_tile and composite_nn in [0, 1, 2, 19, 20, 21, 22]:
+#             if 'v01' in MODIS_tile and composite_nn in [0, 1, 2,3, 19, 20, 21, 22]:
 #                 continue
 
 #             # Skip processing if 'v02' is in MODIS_tile and composite_period is in [0, 1, 20, 21, 22]
@@ -900,3 +900,50 @@ print(f'              Tiles with missing 0.01° regridded historical average fil
 
 # print(f'Step 18 DONE: Tiles with all 1km annualized JJA files done: {tiles_complete}')
 # print(f'             Tiles with missing 1km annualized JJA files : {tiles_to_reprocess}')
+
+# %%
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 19 - North American 0.01° yearly CCI and NDVI files (all tiles combined)
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+dat_basedir = '/uufs/chpc.utah.edu/common/home/lin-group28/ltk/MODIS/MAIAC_MCD19A1/CV-MVC/01d_rect/'
+NAm_vars = ['CCI', 'NDVI']
+
+vars_complete = []
+vars_to_reprocess = []
+years_to_reprocess = []
+print(f'QC filtering Option: {QC_option}')
+for var_name in NAm_vars:
+
+    var_files_missing = 0
+    print("")
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+    print(f'variable {var_name}')
+    dat_dir = os.path.join(dat_basedir, f'QCfilt_{QC_option}', 'NAm_full', var_name)
+    for yyyy in file_years:
+
+        #sample: MCD19A1.061_01d_16day_CV-MVC_NAm_CCI_2020.nc
+        filename = f'MCD19A1.061_01d_16day_CV-MVC_NAm_{var_name}_{yyyy}.nc'
+
+        file_fullpath = f'{dat_dir}/{filename}'
+        if not os.path.exists(file_fullpath):
+            if os.path.exists(file_fullpath + '.tmp'):
+                print(f'    File missing: {filename} (partial .tmp file left by an unfinished/failed run)')
+            else:
+                print(f'    File missing: {filename}')
+            var_files_missing += 1
+            if yyyy not in years_to_reprocess:
+                years_to_reprocess.append(yyyy)
+    if var_files_missing == 0:
+        print(f'variable {var_name} - no files missing (all good)')
+        vars_complete.append(var_name)
+    else:
+        print(f'variable {var_name} - {var_files_missing} files missing')
+        vars_to_reprocess.append(var_name)
+
+    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+    print("")
+
+print(f'Step 19 DONE: Variables with all NAm 0.01° yearly files done: {vars_complete}')
+print(f'              Variables with missing NAm 0.01° yearly files : {vars_to_reprocess}')
+print(f'              Years to reprocess (for YEARS in 19-submit_py.sh): {" ".join(str(y) for y in sorted(years_to_reprocess))}')

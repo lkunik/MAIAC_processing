@@ -156,6 +156,19 @@ def prep_dataset(ds):
     ds = ds.sortby(['x', 'y'])
     return ds
 
+# CHANGED: build a (y, x) mask of pixels where NDVI is not NaN in the annualized lm-fill JJA-average file for a tile.
+# Returns None (and prints a warning) if the file doesn't exist, in which case the tile is plotted unmasked.
+def get_NDVI_mask(tile):
+    mask_file = os.path.join(mask_basedir, tile, 'annualized',
+                             f'MCD19A1.{tile}.061_1km_annual_JJA_CV-MVC_QCfilt_{QC_option}.nc')
+    if not os.path.exists(mask_file):
+        print(f'NDVI mask file not found: {mask_file}. Plotting tile {tile} unmasked.')
+        return None
+    with xr.open_dataset(mask_file) as mask_ds:
+        NDVI_valid = mask_ds['NDVI'].notnull()
+        NDVI_valid = NDVI_valid.all('year') if NDVI_mask_require_all_years else NDVI_valid.any('year')
+        return NDVI_valid.load()
+
 #########################################
 # Define Global Variables and constants
 #########################################
@@ -224,6 +237,10 @@ plot_var = 'gapfill_CCI_frac' # CHANGED: variable to plot (mean annual number of
 dat_basedir = f'/uufs/chpc.utah.edu/common/home/lin-group28/ltk/MODIS/MAIAC_MCD19A1/CV-MVC/1km_curv/QC_gapfill/QCfilt_{QC_option}/'
 tile_dirs = [os.path.join(dat_basedir, tile, 'annualized') for tile in MODIS_tiles]
 
+# CHANGED: only plot pixels where NDVI is not NaN in the annualized lm-fill JJA-average files
+mask_basedir = f'/uufs/chpc.utah.edu/common/home/lin-group28/ltk/MODIS/MAIAC_MCD19A1/CV-MVC/1km_curv/lm-fill/QCfilt_{QC_option}/'
+NDVI_mask_require_all_years = False # False: keep pixels with non-NaN NDVI in at least one year; True: in every year
+
 
 plot_dir = '/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI/plots/maps/North_America/QC/'
 
@@ -240,8 +257,10 @@ if overall_max == 0 and overall_min == 0:
 
         if not os.path.exists(QC_file):
             continue
+        NDVI_mask = get_NDVI_mask(MODIS_tiles[itile])
         with xr.open_dataset(QC_file) as dat_ds:
-            overall_max = float(np.max([np.nanquantile(dat_ds[plot_var].values, 0.99), overall_max]))
+            dat_var = dat_ds[plot_var] if NDVI_mask is None else dat_ds[plot_var].where(NDVI_mask)
+            overall_max = float(np.max([np.nanquantile(dat_var.values, 0.99), overall_max]))
 
     print(f'Overall {plot_var} min: {overall_min}, Overall {plot_var} max: {overall_max}')
 else:
@@ -283,6 +302,16 @@ ax.add_feature(ocean_buffered, facecolor='black', edgecolor='none', alpha=0.7, z
 ax.add_feature(cfeature.LAKES, facecolor='#1C1E9E', edgecolor='#14629c', alpha = 0.7, zorder = 4.5)
 # lakes_gdf.plot(ax=ax, facecolor='#1C1E9E', edgecolor='#14629c', linewidth=1, alpha=1, zorder = 5)
 
+# CHANGED: domain-wide gap-fill summary, accumulated in the plotting loop
+gf_vi = plot_var.split('_')[1]  # 'CCI' or 'NDVI'
+frac_var = f'gapfill_{gf_vi}_frac'
+count_var = f'gapfill_{gf_vi}_count'
+domain_npix = 0
+domain_frac_sum = 0.0
+domain_count_sum = 0.0
+domain_ncomp_sum = 0.0
+tile_stats = []
+
 for itile, tile_dir in enumerate(tile_dirs):
     print(f'Plotting {plot_var} for tile {MODIS_tiles[itile]}...')
     QC_file = os.path.join(tile_dir, f'MCD19A1.{MODIS_tiles[itile]}.061_1km_annual_CV-MVC_QCfilt_{QC_option}_gapfillQC.nc')
@@ -290,10 +319,33 @@ for itile, tile_dir in enumerate(tile_dirs):
     if not os.path.exists(QC_file):
         print(f'File not found: {QC_file}. Skipping this tile.')
         continue
+
+    if 'v01' in MODIS_tiles[itile] or 'v08' in MODIS_tiles[itile]:
+        print(f'Skipping due to N/S domain edge effect: {QC_file}')
+        continue
+
     dat_ds = xr.open_dataset(QC_file)
+
+    # CHANGED: mask out pixels where the lm-fill JJA-average NDVI is NaN
+    NDVI_mask = get_NDVI_mask(MODIS_tiles[itile])
+    if NDVI_mask is not None:
+        dat_ds[plot_var] = dat_ds[plot_var].where(NDVI_mask)
 
     if MODIS_tiles[itile] in ['h15v01', 'h15v02', 'h16v01', 'h16v02']:
         dat_ds[plot_var] = dat_ds[plot_var].where((dat_ds['lon'] < -60) | (dat_ds['lat'] < 58), drop=False)
+
+    # CHANGED: accumulate domain-wide totals over the same pixels that are plotted
+    # (1 km sinusoidal pixels are equal-area, so pixel counts are area-weighted)
+    valid = dat_ds[plot_var].notnull() & dat_ds[frac_var].notnull()
+    tile_frac = dat_ds[frac_var].where(valid)
+    tile_count = dat_ds[count_var].where(valid)
+    n_comp_mean = np.mean([int(s.split(':')[1]) for s in dat_ds.attrs['composites_per_year'].split(',')])  # mean composites per year
+    domain_npix += int(valid.sum())
+    domain_frac_sum += float(tile_frac.sum())
+    domain_count_sum += float(tile_count.sum())
+    domain_ncomp_sum += float(valid.sum()) * n_comp_mean
+    tile_stats.append({'tile': MODIS_tiles[itile], 'n_pixels': int(valid.sum()),
+                       'mean_frac_pct': 100 * float(tile_frac.mean()), 'composites_per_year': n_comp_mean})
 
     # CHANGED: no year averaging needed, the file is already averaged across years
     dat_ds_mean = dat_ds.set_coords(['lon', 'lat'])
@@ -312,14 +364,14 @@ for itile, tile_dir in enumerate(tile_dirs):
 
 ax.coastlines(resolution='50m', linewidth=1, zorder = 5)
 
-# colorbar inset in the lower-left corner of the map, over the dark ocean backdrop (hence white text)
-cax = ax.inset_axes([0.04, 0.14, 0.3, 0.03], zorder=10)  # [x0, y0, width, height] in axes-fraction coordinates
-cbar = fig.colorbar(plt.cm.ScalarMappable(norm=mcolors.Normalize(vmin=overall_min, vmax=overall_max), cmap=cmap_name),
-                    cax=cax, orientation='horizontal', extend='max')  # 'max' because overall_max is a 99th-percentile cap
-cbar.set_label(zlab, color='white', fontsize=36, labelpad=12)
-cbar.ax.tick_params(colors='white', labelsize=30, length=8, width=2)
-cbar.outline.set_edgecolor('white')
-cbar.outline.set_linewidth(2)
+# CHANGED: print domain-wide gap-fill percentages
+#   mean of per-pixel fractions : average over plotted pixels of the per-pixel annual gap-filled fraction
+#   ratio of totals             : total composites gap-filled / total composites, summed over plotted pixels
+print(pd.DataFrame(tile_stats).round(2).to_string(index=False))
+print(f'Domain-wide {gf_vi} gap-fill, {domain_npix} pixels:')
+print(f'  mean of per-pixel fractions: {100 * domain_frac_sum / domain_npix:.2f}%')
+print(f'  ratio of totals:             {100 * domain_count_sum / domain_ncomp_sum:.2f}%')
+
 # ax.plot(US_NR1_lonlat[0], US_NR1_lonlat[1], '*', markersize=30, markerfacecolor='yellow', markeredgecolor='black', markeredgewidth=1, transform=ccrs.PlateCarree())
 
 # ax.add_feature(states_geom, facecolor="none", edgecolor="#737373", linewidth=0.4) # add state boundaries to the map
@@ -331,3 +383,21 @@ plt.savefig(outfile, format='png', dpi=500, bbox_inches='tight')
 plt.close()
 
 print(f'{plot_var} map complete.')
+
+# CHANGED: colorbar saved as its own standalone figure (transparent background) instead of an inset on the map,
+# so it can be added to the map manually. Same size/styling as the old inset (white text, for the dark ocean backdrop);
+# set cbar_color = 'black' for use on a light background.
+cbar_color = 'white'
+fig_cb = plt.figure(figsize=(9, 0.9))  # ~same size as the old inset (0.3 x 0.03 of the 30-in map)
+cax = fig_cb.add_axes([0, 0, 1, 1])
+cbar = fig_cb.colorbar(plt.cm.ScalarMappable(norm=mcolors.Normalize(vmin=overall_min, vmax=overall_max), cmap=cmap_name),
+                       cax=cax, orientation='horizontal', extend='max')  # 'max' because overall_max is a 99th-percentile cap
+cbar.set_label(zlab, color=cbar_color, fontsize=36, labelpad=12)
+cbar.ax.tick_params(colors=cbar_color, labelsize=30, length=8, width=2)
+cbar.outline.set_edgecolor(cbar_color)
+cbar.outline.set_linewidth(2)
+cbar_outfile = os.path.join(plot_dir, f'MCD19A1_NorthAmerica_annual_{plot_var}_colorbar_QCfilt_{QC_option}_lambert_1km_{cmap_name}.png')
+fig_cb.savefig(cbar_outfile, format='png', dpi=500, bbox_inches='tight', transparent=True)
+plt.close(fig_cb)
+
+print(f'{plot_var} colorbar complete.')

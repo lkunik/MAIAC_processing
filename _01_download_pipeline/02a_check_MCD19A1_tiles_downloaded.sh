@@ -45,18 +45,18 @@ MODIS_TILES=(
 # "h14v02"
 # "h14v03"
 # "h14v04"
-# "h15v01"
-# "h15v02"
-# "h16v01"
+"h15v01"
+"h15v02"
+"h16v01"
 )
 
 
 
 
 # === Configure these ===
-TILE="h12v04"
-YEAR_START=2018
-YEAR_END=2019
+TILE="h16v01"
+YEAR_START=2020
+YEAR_END=2020
 # =======================
 
 echo "Checking for missing NC files in ${NC_DIR}"

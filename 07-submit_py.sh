@@ -12,9 +12,9 @@ LC_threshold_high=0.99
 LC_threshold_low=0.2
 
 ECOREGIONS=(
-"Boreal"
-"Eastern"
-"Western"
+# "Boreal"
+# "Eastern"
+# "Western"
 "Southwest_US_Mexico"
 "GREAT_PLAINS"
 "NORTH_AMERICAN_DESERTS"

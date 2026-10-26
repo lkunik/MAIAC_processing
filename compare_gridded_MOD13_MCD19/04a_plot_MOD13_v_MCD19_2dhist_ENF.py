@@ -76,6 +76,9 @@ land_cover_stats = {
     'rmse': float(summary['rmse']),
     'mae': float(summary['mae']),
 }
+print('land_cover_stats:', land_cover_stats)
+
+
 
 #%%
 

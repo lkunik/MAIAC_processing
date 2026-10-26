@@ -27,6 +27,7 @@ import glob
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
+from matplotlib.lines import Line2D
 
 
 #########################################
@@ -61,6 +62,8 @@ stats = {
     'Spearman_r': ('Spearman r', '{:.2f}', 'max'),
     'CRMSE': ('CRMSE', '{:.3f}', 'min'),
     'bias': ('Bias', '{:.3f}', 'min_abs'),
+    'CCC': ("Lin's CCC", '{:.2f}', 'max'),
+    'SD_ratio': ('SD ratio (satellite / tower)', '{:.2f}', 'closest_one'),
     'N': ('N (paired composites)', '{:.0f}', 'none'),
 }
 
@@ -87,6 +90,23 @@ exclude_from_ranking = {('US-NR1', 'GCOM-C')}
 # Draw the table name and statistic above each table image
 show_title = True
 
+# Taylor diagrams (one per index) for these tables; they need Pearson_r and SD_ratio in the
+# stats csv, which only the 03_final_compare batch scripts write.
+# Colors match the product colors in the timeseries panels; markers identify sites.
+taylor_tables = ['Final_MCD19masked']
+product_colors = {
+    'MCD19': '#BF2665',
+    'MOD09': '#B288E9',
+    'MOD13': '#0DA10A',
+    'MCD43': '#B5C230',
+    'GCOM-C': '#56B4E9',
+}
+site_markers = ['o', 's', '^', 'D', 'v', 'P']
+
+# A second, zoomed Taylor diagram per index (*_zoom.png) that only shows points with
+# r >= r_min and SD ratio <= sd_cap; points outside that range are listed below the plot.
+taylor_zoom = {'r_min': 0, 'sd_cap': 4}
+
 
 #########################################
 # Define Global functions
@@ -112,7 +132,7 @@ def build_table(columns, stat):
             df = read_stats_file(pattern, site_name)
             df = df[df[key_col] == key_val].set_index('element')
             for element in elements:
-                if element in df.index:
+                if element in df.index and stat in df.columns:
                     table.loc[(site_label, element), col_label] = df.loc[element, stat]
     if stat == 'N':
         table = table.replace(0, np.nan)  # no pairs (e.g. MOD13/MCD43 CCI) shown as '–' like the other tables
@@ -127,6 +147,9 @@ def best_columns(row, rule):
     if rule == 'max':
         target = vals.max()
     elif rule == 'min':
+        target = vals.min()
+    elif rule == 'closest_one':
+        vals = (vals - 1).abs()
         target = vals.min()
     else:
         vals = vals.abs()
@@ -193,6 +216,130 @@ def plot_table(table, stat, title, outfile):
     plt.close(fig)
 
 
+def plot_taylor(columns, title, outfile_base, r_min=None, sd_cap=None):
+    """
+    One Taylor diagram per index. Angle = Pearson r, radius = satellite SD / tower SD,
+    so the distance from each point to the tower reference (r = 1, SD ratio = 1) is the
+    CRMSE normalized by the tower SD (grey dashed contours).
+    If r_min / sd_cap are given, the axes are limited to that range and points outside
+    it are left out and listed in a note below the plot.
+    """
+    r_table = build_table(columns, 'Pearson_r')
+    sd_table = build_table(columns, 'SD_ratio')
+
+    for element in elements:
+        r_el = r_table.xs(element, level='Index')
+        sd_el = sd_table.xs(element, level='Index')
+        valid = r_el.notna() & sd_el.notna()
+        if not valid.values.any():
+            print(f'Taylor diagram {element}: no Pearson_r / SD_ratio values, skipped')
+            continue
+
+        # points left out of a zoomed diagram
+        shown = valid.copy()
+        if r_min is not None:
+            shown &= r_el >= r_min
+        if sd_cap is not None:
+            shown &= sd_el <= sd_cap
+        omitted = [f'{col} at {site_label} (r = {r_el.loc[site_label, col]:.2f}, SD ratio = {sd_el.loc[site_label, col]:.2f})'
+                   for _, site_label in sites for col in r_el.columns
+                   if valid.loc[site_label, col] and not shown.loc[site_label, col]]
+        valid = shown
+
+        # use a half circle only if some correlation is negative
+        half = (r_el[valid] < 0).values.any()
+        theta_max = np.pi if half else np.pi / 2
+        if sd_cap is not None:
+            sd_max = sd_cap
+        else:
+            sd_max = max(1.5, np.ceil(1.1 * np.nanmax(sd_el[valid].values) / 0.25) * 0.25)
+
+        fig = plt.figure(figsize=(10, 6) if half else (8, 6.5))
+        ax = fig.add_subplot(projection='polar')
+        ax.set_thetamin(0)
+        ax.set_thetamax(np.degrees(theta_max))
+        ax.set_rlim(0, sd_max)
+        ax.set_rlabel_position(np.degrees(theta_max))
+        ax.tick_params(labelsize=10)
+        ax.grid(color='0.85', linewidth=0.6)
+
+        r_ticks = [0, 0.2, 0.4, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99, 1]
+        if half:
+            r_ticks = [-1, -0.9, -0.6, -0.4, -0.2] + r_ticks
+        ax.set_thetagrids(np.degrees(np.arccos(r_ticks)), labels=[f'{v:g}' for v in r_ticks])
+
+        # normalized CRMSE contours around the reference point
+        tt, rr = np.meshgrid(np.linspace(0, theta_max, 300), np.linspace(0, sd_max, 300))
+        crmse = np.sqrt(1 + rr**2 - 2 * rr * np.cos(tt))
+        crmse_step = 0.25 if sd_max <= 2 else 0.5
+        cs = ax.contour(tt, rr, crmse, levels=np.arange(crmse_step, 2 * sd_max, crmse_step),
+                        colors='0.6', linewidths=0.7, linestyles='--')
+        ax.clabel(cs, fmt='%.2g', fontsize=8)
+
+        # tower reference: SD ratio = 1 arc and the reference point
+        t = np.linspace(0, theta_max, 200)
+        ax.plot(t, np.ones_like(t), color='black', linewidth=0.8)
+        ax.plot(0, 1, marker='*', color='black', markersize=14, clip_on=False, zorder=5)
+
+        for i, (_, site_label) in enumerate(sites):
+            for col in r_el.columns:
+                if not valid.loc[site_label, col]:
+                    continue
+                excluded = (site_label, col) in exclude_from_ranking
+                color = product_colors.get(col, 'gray')
+                ax.plot(np.arccos(r_el.loc[site_label, col]), sd_el.loc[site_label, col],
+                        marker=site_markers[i], markersize=9, linestyle='none', zorder=4,
+                        markerfacecolor='none' if excluded else color,
+                        markeredgecolor=color if excluded else 'black',
+                        markeredgewidth=1.5 if excluded else 0.6)
+
+        # axis labels, offset in points from the plot edge (the polar axes box is larger than the plot)
+        sd_label = 'SD ratio (satellite / tower)'
+        ax.annotate(sd_label, (0, sd_max / 2), textcoords='offset points', xytext=(0, -30),
+                    ha='center', va='top', fontsize=11, annotation_clip=False)
+        if half:
+            ax.annotate('Pearson r', (np.pi / 2, sd_max), textcoords='offset points', xytext=(0, 32),
+                        ha='center', va='bottom', fontsize=11, annotation_clip=False)
+        else:
+            ax.annotate('Pearson r', (np.pi / 4, sd_max), textcoords='offset points', xytext=(45, 45),
+                        ha='center', va='center', rotation=-45, fontsize=11, annotation_clip=False)
+            ax.annotate(sd_label, (np.pi / 2, sd_max / 2), textcoords='offset points', xytext=(-38, 0),
+                        ha='right', va='center', rotation=90, fontsize=11, annotation_clip=False)
+
+        # legends: color = product, marker = site
+        prod_handles = [Line2D([], [], marker='o', linestyle='none', markersize=9, markerfacecolor=product_colors.get(c, 'gray'),
+                               markeredgecolor='black', markeredgewidth=0.6, label=c)
+                        for c in r_el.columns if valid[c].any()]
+        prod_handles.append(Line2D([], [], marker='*', linestyle='none', markersize=12, color='black', label='Tower (reference)'))
+        site_handles = [Line2D([], [], marker=site_markers[i], linestyle='none', markersize=9, markerfacecolor='0.7',
+                               markeredgecolor='black', markeredgewidth=0.6, label=site_label)
+                        for i, (_, site_label) in enumerate(sites) if valid.loc[site_label].any()]
+        if any(valid.loc[s, c] for s, c in exclude_from_ranking if s in valid.index and c in valid.columns):
+            site_handles.append(Line2D([], [], marker='o', linestyle='none', markersize=9, markerfacecolor='none',
+                                       markeredgecolor='black', markeredgewidth=1.5, label='Few pairs (footnoted)'))
+        leg1 = ax.legend(handles=prod_handles, title='Product', loc='upper left', bbox_to_anchor=(1.05, 1.0),
+                         fontsize=10, title_fontsize=10, frameon=False)
+        ax.add_artist(leg1)
+        leg2 = ax.legend(handles=site_handles, title='Site', loc='upper left', bbox_to_anchor=(1.05, 0.55),
+                  fontsize=10, title_fontsize=10, frameon=False)
+
+        if show_title:
+            if half:
+                ax.annotate(f'{title}: {element}', (np.pi / 2, sd_max), textcoords='offset points',
+                            xytext=(0, 55), ha='center', va='bottom', fontsize=13, annotation_clip=False)
+            else:
+                ax.set_title(f'{title}: {element}', fontsize=13, pad=30)
+
+        if omitted:
+            limits = ' or '.join(([f'r < {r_min:g}'] if r_min is not None else []) +
+                                 ([f'SD ratio > {sd_cap:g}'] if sd_cap is not None else []))
+            ax.text(0, -0.13, f'Not shown ({limits}):\n' + '\n'.join(omitted), transform=ax.transAxes,
+                    ha='left', va='top', fontsize=9, color='0.3')
+
+        fig.savefig(f'{outfile_base}_{element}.png', dpi=300, bbox_inches='tight', bbox_extra_artists=[leg1, leg2, *ax.texts])
+        plt.close(fig)
+
+
 #########################################
 # Begin main
 #########################################
@@ -202,12 +349,21 @@ def plot_table(table, stat, title, outfile):
 for table_name, table_info in tables.items():
     for stat in stats:
         table = build_table(table_info['columns'], stat)
+        if table.isna().all().all():
+            print(f'\n{table_name} - {stat}: not in the stats files, skipped')
+            continue
         print(f'\n{table_name} - {stat}')
         print(table.round(3).to_string())
 
         out_base = os.path.join(table_dir, f'fit_stats_table_{table_name}_{stat}')
         table.rename(columns=lambda c: c.replace('\n', ' ')).to_csv(f'{out_base}.csv')
         plot_table(table, stat, table_info['title'], f'{out_base}.png')
+
+    if table_name in taylor_tables:
+        plot_taylor(table_info['columns'], table_info['title'],
+                    os.path.join(table_dir, f'taylor_diagram_{table_name}'))
+        plot_taylor(table_info['columns'], table_info['title'],
+                    os.path.join(table_dir, f'taylor_diagram_{table_name}_zoom'), **taylor_zoom)
 
 
 

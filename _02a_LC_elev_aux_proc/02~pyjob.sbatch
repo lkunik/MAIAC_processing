@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --requeue # on guest nodes, opt to requeue any job that is booted out by a higher priority job 
-#SBATCH --time=04:00:00 # walltime, abbreviated by -t
+#SBATCH --time=08:00:00 # walltime, abbreviated by -t
 #SBATCH --nodes=1      # number of cluster nodes, abbreviated by -N
 #SBATCH --ntasks=1     # number of tasks to run
 #SBATCH --cpus-per-task=8 # number of CPUs to use per task, abbreviated by -c
@@ -9,6 +9,7 @@
 #SBATCH -e err-%x-%j-%N.err # name of the stderr, using the job name (%x), job number (%j) and the first node (%N)
 #SBATCH --account=owner-guest    # account - abbreviated by -A
 #SBATCH --partition=notchpeak-guest  # partition, abbreviated by -p
+#SBATCH --exclude=notch408,notch439,notch349,notch350,notch352,notch407
 #SBATCH --mem=100G
 
 # For lin-group kingspeak nodes, use account=lin-kp, partition=lin-kp

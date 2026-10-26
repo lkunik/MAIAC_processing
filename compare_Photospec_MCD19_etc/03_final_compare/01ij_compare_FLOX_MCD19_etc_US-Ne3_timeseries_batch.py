@@ -897,8 +897,14 @@ def main():
         spear_r, spear_p = spearmanr(x, y)
         crmse = np.sqrt(np.mean(((y - y.mean()) - (x - x.mean()))**2))
         bias = y.mean() - x.mean()
-        return {'R2': r_value**2, 'bias': bias, 'CRMSE': crmse,
-                'Spearman_r': spear_r, 'Spearman_pval': spear_p, 'N': len(x)}
+        # Lin's concordance correlation coefficient and satellite/tower std ratio
+        # (population moments, consistent with CRMSE above; used for Taylor diagrams)
+        sx, sy = x.std(), y.std()
+        cov = np.mean((x - x.mean()) * (y - y.mean()))
+        ccc = 2 * cov / (sx**2 + sy**2 + bias**2)
+        return {'R2': r_value**2, 'Pearson_r': r_value, 'bias': bias, 'CRMSE': crmse,
+                'Spearman_r': spear_r, 'Spearman_pval': spear_p,
+                'CCC': ccc, 'SD_ratio': sy / sx, 'SD_tower': sx, 'N': len(x)}
 
 
     def compare_product(ds, var, ref_times, ref_df, max_bridge_days=16, min_n=3):
@@ -937,7 +943,7 @@ def main():
         'GCOM': GCOM_pt,
     }
     elements = ['CCI', 'NDVI']
-    stat_cols = ['R2', 'bias', 'CRMSE', 'Spearman_r', 'Spearman_pval', 'N']
+    stat_cols = ['R2', 'Pearson_r', 'bias', 'CRMSE', 'Spearman_r', 'Spearman_pval', 'CCC', 'SD_ratio', 'SD_tower', 'N']
 
     rows = []
     paired = {}  # (product, element) -> paired DataFrame, for sanity plots
@@ -955,7 +961,7 @@ def main():
             else:
                 print(f"{prod} vs FloX {var}: R^2={stats['R2']:.3f}, bias={stats['bias']:.3f}, "
                     f"CRMSE={stats['CRMSE']:.3f}, Spearman r={stats['Spearman_r']:.3f}, "
-                    f"p={stats['Spearman_pval']:.3e}, N={stats['N']}")
+                    f"p={stats['Spearman_pval']:.3e}, CCC={stats['CCC']:.3f}, SD ratio={stats['SD_ratio']:.3f}, N={stats['N']}")
             rows.append({'QC': prod, 'element': var, **stats})
 
     fit_stats_df = pd.DataFrame(rows).set_index(['QC', 'element'])[stat_cols]

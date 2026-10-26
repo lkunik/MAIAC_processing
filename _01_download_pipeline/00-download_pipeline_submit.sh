@@ -2,7 +2,7 @@
 
 BASEDIR="/uufs/chpc.utah.edu/common/home/lin-group19/ltk/MODIS/CCI"
 
-# YEARS=$(seq 2018 2019)
+# YEARS=$(seq 2020 2020)
 YEARS=$(seq 2000 2025)
 
 MODIS_TILES=(

@@ -236,7 +236,7 @@ def main():
     #%%
 
     Photospec_df = pd.read_csv(Photospec_file)
-    print("Photospec_df columns:", Photospec_df.columns.tolist())
+    # print("Photospec_df columns:", Photospec_df.columns.tolist())
 
     # Remove any data from Photospec_df where NDVI is below 0.5
     Photospec_df = Photospec_df[Photospec_df['NDVI'] >= 0.5].reset_index(drop=True)
@@ -397,7 +397,7 @@ def main():
     ax.set_xticks(month_positions)
     ax.set_xticklabels(month_labels)
 
-    ax.set_title(f'b)  {plot_title}')
+    ax.set_title(f'f)  {plot_title}')
     ax.set_ylabel('# of Valid Observations')
 
     plt.tight_layout()
@@ -495,12 +495,54 @@ def main():
     ax.set_xticks(month_positions)
     ax.set_xticklabels(month_labels)
 
-    ax.set_title(f'b)  {plot_title}')
+    ax.set_title(f'f)  {plot_title}')
     ax.set_ylabel('# of Valid Observations')
 
     plt.tight_layout()
     nobs_panel_file = os.path.join(panel_dir, f'{site_name}_nobs_Adjcompare_panel.png')
     plt.savefig(nobs_panel_file, dpi=300, bbox_inches='tight')
+
+
+    ############################################
+    ### QC ANALYSIS DELIVERABLE 3 - Quantify nobs differences relative to QC4
+    ############################################
+
+    # For each comparison: diff = QCx - QC4 per composite period.
+    # Percent is relative to QC4: 100 * diff / QC4. Per-composite percents are undefined where QC4 == 0,
+    # so those composites are excluded from the mean percent; the aggregate percent (sum diff / sum QC4)
+    # includes all composites.
+    nobs_compare_sets = {
+        f'AODcompare ({legend_descr_QC3} vs {legend_descr_QC4})': MCD19_QC3_pt['valid_obs_count'].values,
+        f'Adjcompare ({legend_descr_QC2} vs {legend_descr_QC4})': MCD19_QC2_pt['valid_obs_count'].values,
+    }
+    nobs_QC4 = MCD19_QC4_pt['valid_obs_count'].values.astype(float)
+
+    print(f'\n===== {site_name}: nobs differences relative to {legend_descr_QC4} =====')
+    for compare_descr, nobs_other in nobs_compare_sets.items():
+        nobs_other = nobs_other.astype(float)
+        valid = np.isfinite(nobs_other) & np.isfinite(nobs_QC4)
+        diff = nobs_other[valid] - nobs_QC4[valid]
+        ref = nobs_QC4[valid]
+        differ = diff != 0
+        pct_ok = ref > 0
+        pct = np.full_like(diff, np.nan)
+        pct[pct_ok] = 100 * diff[pct_ok] / ref[pct_ok]
+
+        print(f'\n--- {compare_descr} ---')
+        # 1. Number of composites with differing nobs
+        print(f'Composites with differing nobs: {differ.sum()} of {valid.sum()} ({100 * differ.sum() / valid.sum():.1f}%)')
+        # 2. Mean diff over differing composites only; 3. mean diff over all composites
+        for subset_descr, subset in [('Differing composites only', differ), ('All composites', np.ones_like(differ, dtype=bool))]:
+            if subset.sum() == 0:
+                print(f'{subset_descr}: n=0')
+                continue
+            n_pct = (subset & pct_ok).sum()
+            mean_pct = np.nanmean(pct[subset & pct_ok]) if n_pct > 0 else np.nan
+            agg_pct = 100 * diff[subset].sum() / ref[subset].sum() if ref[subset].sum() > 0 else np.nan
+            print(f'{subset_descr} (n={subset.sum()}): '
+                  f'mean diff = {diff[subset].mean():.2f} obs; '
+                  f'mean % diff = {mean_pct:.1f}% (n={n_pct}, excl. {legend_descr_QC4} nobs=0); '
+                  f'aggregate % diff = {agg_pct:.1f}%')
 
 
 

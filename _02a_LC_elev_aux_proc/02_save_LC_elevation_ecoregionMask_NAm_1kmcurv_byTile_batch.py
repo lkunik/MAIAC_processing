@@ -312,7 +312,7 @@ def main():
     dat_dir = f'/uufs/chpc.utah.edu/common/home/lin-group28/ltk/MODIS/MAIAC_MCD19A1/CV-MVC/1km_curv/pre-fill/QCfilt_{QC_option}/{MODIS_tile}/'
     MCD19A1_files = sorted(glob.glob(os.path.join(dat_dir, f'MCD19A1.{MODIS_tile}.*.nc')))
 
-    sample_file = os.path.join(dat_dir, f'MCD19A1.{MODIS_tile}.061_01d_16day_CV-MVC_QCfilt_{QC_option}_{sample_year}-{sample_period}.nc')
+    sample_file = os.path.join(dat_dir, f'MCD19A1.{MODIS_tile}.061_1km_16day_CV-MVC_QCfilt_{QC_option}_{sample_year}-{sample_period}.nc')
     sample_1km_curv_ds = xr.open_dataset(sample_file).squeeze('time')['NDVI']
 
     # Get the tile corners from the metadata
